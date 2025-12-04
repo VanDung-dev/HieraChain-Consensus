@@ -268,7 +268,7 @@ impl BaseConsensus {
 
 /// Python module
 #[pymodule]
-fn hierachain_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<ConsensusNode>()?;
     m.add_class::<ConsensusMessage>()?;
     m.add_class::<BaseConsensus>()?;
