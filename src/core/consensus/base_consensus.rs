@@ -3,199 +3,139 @@
 //! This module implements a high-performance consensus algorithm using Rust,
 //! designed to work efficiently with the Python components of HieraChain.
 
+#![allow(unused)]
+
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-/// Represents a consensus node in the network
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsensusNode {
-    /// Unique identifier for the node
-    pub id: String,
-    /// Public key of the node
-    pub public_key: String,
-    /// Network address of the node
-    pub address: String,
-    /// Node reputation score
-    pub reputation: f64,
+/// Trait defining the interface for consensus mechanisms
+/// This corresponds to the abstract base class in Python
+pub trait BaseConsensusTrait {
+    /// Validate a block according to the consensus rules
+    fn validate_block(&self, block: &Block, previous_block: &Block) -> bool;
+
+    /// Finalize a block according to the consensus mechanism
+    fn finalize_block(&mut self, block: &mut Block) -> bool;
+
+    /// Check if a block can be created by the given authority
+    fn can_create_block(&self, authority_id: Option<&str>) -> bool;
+
+    /// Validate an event according to consensus-specific rules
+    fn validate_event_for_consensus(&self, event: &Value) -> bool;
+
+    /// Get information about the consensus mechanism
+    fn get_consensus_info(&self) -> Map<String, Value>;
+
+    /// Update consensus configuration
+    fn update_config(&mut self, config: Map<String, Value>);
+
+    /// Reset any internal consensus state
+    fn reset_consensus_state(&mut self) {}
+
+    /// Get the current difficulty for block creation
+    fn get_block_creation_difficulty(&self) -> f64 {
+        1.0 // Default difficulty
+    }
+
+    /// Estimate the time required to create a new block
+    fn estimate_block_time(&self) -> f64 {
+        10.0 // Default 10 seconds
+    }
 }
 
-/// Represents a consensus message exchanged between nodes
+/// Block structure for HieraChain
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsensusMessage {
-    /// Message type
-    pub msg_type: String,
-    /// Sender node ID
-    pub sender: String,
-    /// Message content
-    pub content: Map<String, Value>,
-    /// Message timestamp
+pub struct Block {
+    /// Block index in the chain
+    pub index: u64,
+    /// List of events (multiple events per block)
+    pub events: Vec<Value>,
+    /// Block creation timestamp
     pub timestamp: f64,
-    /// Digital signature
-    pub signature: String,
+    /// Hash of the previous block
+    pub previous_hash: String,
+    /// Nonce value for proof-of-work (if needed)
+    pub nonce: u64,
+    /// Block hash
+    pub hash: String,
 }
 
-/// Main consensus state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaseConsensus {
-    /// List of nodes participating in consensus
-    pub nodes: Vec<ConsensusNode>,
-    /// Current round of consensus
-    pub round: u64,
-    /// Current leader node
-    pub leader: Option<String>,
-    /// Messages received in current round
-    pub messages: Vec<ConsensusMessage>,
-    /// Decisions made in previous rounds
-    pub decisions: HashMap<u64, String>,
-    /// Node reputations
-    pub reputations: HashMap<String, f64>,
-}
+impl Block {
+    /// Create a new block
+    #[allow(dead_code)]
+    pub fn new(index: u64, events: Vec<Value>, timestamp: Option<f64>, previous_hash: String, nonce: u64) -> Self {
+        let timestamp = timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs_f64())
+                .unwrap_or(0.0)
+        });
 
-impl BaseConsensus {
-    /// Create a new consensus instance
-    pub fn new() -> Self {
-        BaseConsensus {
-            nodes: Vec::new(),
-            round: 0,
-            leader: None,
-            messages: Vec::new(),
-            decisions: HashMap::new(),
-            reputations: HashMap::new(),
-        }
-    }
-
-    /// Add a new node to the consensus network
-    pub fn add_node(&mut self, node: ConsensusNode) {
-        self.reputations.insert(node.id.clone(), node.reputation);
-        self.nodes.push(node);
-    }
-
-    /// Remove a node from the consensus network
-    pub fn remove_node(&mut self, node_id: &str) {
-        self.nodes.retain(|node| node.id != node_id);
-        self.reputations.remove(node_id);
-    }
-
-    /// Select leader based on reputation and round
-    pub fn select_leader(&mut self) -> Option<String> {
-        if self.nodes.is_empty() {
-            return None;
-        }
-
-        // Simple leader selection based on reputation and round
-        let total_reputation: f64 = self.reputations.values().sum();
-        if total_reputation <= 0.0 {
-            // If no reputation scores, select based on round-robin
-            let index = self.round as usize % self.nodes.len();
-            self.leader = Some(self.nodes[index].id.clone());
-        } else {
-            // Weighted selection based on reputation
-            let target = (self.round as f64 * 13.7) % total_reputation; // Simple hash-like function
-            let mut cumulative = 0.0;
-            
-            for node in &self.nodes {
-                cumulative += self.reputations.get(&node.id).unwrap_or(&0.0);
-                if cumulative >= target {
-                    self.leader = Some(node.id.clone());
-                    break;
-                }
-            }
-            
-            // Fallback in case of floating point errors
-            if self.leader.is_none() {
-                self.leader = Some(self.nodes.last().unwrap().id.clone());
-            }
-        }
-        
-        self.leader.clone()
-    }
-
-    /// Process an incoming consensus message
-    pub fn process_message(&mut self, message: ConsensusMessage) -> Result<bool, String> {
-        // Verify message signature (simplified)
-        if message.signature.is_empty() {
-            return Err("Message signature missing".to_string());
-        }
-
-        // Store message
-        self.messages.push(message);
-        Ok(true)
-    }
-
-    /// Execute one round of consensus
-    pub fn execute_round(&mut self) -> Result<String, String> {
-        self.round += 1;
-        
-        // Select leader for this round
-        self.select_leader();
-        
-        // In a real implementation, we would:
-        // 1. Have the leader propose a block
-        // 2. Collect votes from other nodes
-        // 3. Make a decision based on the votes
-        // 4. Broadcast the decision
-        
-        // Simplified decision making for demonstration
-        let decision = if let Some(leader_id) = &self.leader {
-            format!("Round {} decided by leader {}", self.round, leader_id)
-        } else {
-            format!("Round {} decided by default", self.round)
+        let mut block = Block {
+            index,
+            events,
+            timestamp,
+            previous_hash,
+            nonce,
+            hash: String::new(),
         };
-        
-        // Store decision
-        self.decisions.insert(self.round, decision.clone());
-        
-        // Clear messages for next round
-        self.messages.clear();
-        
-        Ok(decision)
+
+        block.hash = block.calculate_hash();
+        block
     }
 
-    /// Get statistics about the consensus process
-    pub fn get_statistics(&self) -> ConsensusStats {
-        ConsensusStats {
-            total_nodes: self.nodes.len(),
-            current_round: self.round,
-            total_decisions: self.decisions.len(),
-            leader: self.leader.clone().unwrap_or_default(),
-        }
+    /// Calculate the hash of the block
+    #[allow(dead_code)]
+    pub fn calculate_hash(&self) -> String {
+        let block_data = serde_json::json!({
+            "index": self.index,
+            "events": self.events,
+            "timestamp": self.timestamp,
+            "previous_hash": self.previous_hash,
+            "nonce": self.nonce
+        });
+
+        let block_string = serde_json::to_string(&block_data).unwrap_or_default();
+        format!("{:x}", Sha256::digest(block_string.as_bytes()))
     }
 
-    /// Validate if a node is authorized to participate
-    pub fn is_authorized_node(&self, node_id: &str) -> bool {
-        self.nodes.iter().any(|node| node.id == node_id)
+    /// Add an event to the block and recalculate hash
+    #[allow(dead_code)]
+    pub fn add_event(&mut self, event: Value) {
+        self.events.push(event);
+        self.hash = self.calculate_hash();
     }
 
-    /// Update node reputation based on behavior
-    pub fn update_reputation(&mut self, node_id: &str, delta: f64) {
-        if let Some(reputation) = self.reputations.get_mut(node_id) {
-            *reputation += delta;
-            // Ensure reputation stays within reasonable bounds
-            if *reputation < 0.0 {
-                *reputation = 0.0;
+    /// Validate the block structure according to framework guidelines
+    #[allow(dead_code)]
+    pub fn validate_structure(&self) -> bool {
+        // Check if events is a list (not a single event)
+        // In Rust, this is guaranteed by the type system
+
+        // Check if each event has required metadata structure
+        for event_value in &self.events {
+            if let Value::Object(event) = event_value {
+                // Events should have entity_id as metadata (not as block identifier)
+                if let Some(entity_id) = event.get("entity_id") {
+                    if !entity_id.is_string() {
+                        return false;
+                    }
+                }
+
+                // Events should have event type
+                if !event.contains_key("event") {
+                    return false;
+                }
+            } else {
+                // Event is not an object
+                return false;
             }
-            if *reputation > 100.0 {
-                *reputation = 100.0;
-            }
         }
-    }
-}
 
-impl Default for BaseConsensus {
-    fn default() -> Self {
-        Self::new()
+        true
     }
-}
-
-/// Statistics about the consensus process
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsensusStats {
-    pub total_nodes: usize,
-    pub current_round: u64,
-    pub total_decisions: usize,
-    pub leader: String,
 }
 
 /// Perform proof of authority consensus validation
