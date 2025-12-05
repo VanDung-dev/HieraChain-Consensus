@@ -1,4 +1,4 @@
-# HieraChain Consensus
+# HieraChain Consensus (In the development stage)
 
 HieraChain Consensus is a Rust-based blockchain consensus library that provides core consensus mechanisms for the HieraChain blockchain platform. It implements consensus algorithms, node management, and message handling with Python bindings for easy integration.
 
