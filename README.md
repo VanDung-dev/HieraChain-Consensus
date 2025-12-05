@@ -26,26 +26,6 @@ pip install maturin
 maturin develop
 ```
 
-## Usage
-
-The library provides Python classes that can be used directly in Python applications:
-
-```python
-from hierachain_consensus import BaseConsensus, ConsensusNode, ConsensusMessage
-
-# Create a consensus instance
-consensus = BaseConsensus()
-
-# Create and add nodes
-node = ConsensusNode("node1", "public_key", "address", 1.0)
-consensus.add_node(node)
-
-# Process messages and execute consensus rounds
-message = ConsensusMessage("type", "sender", {}, 1234567890.0, "signature")
-consensus.process_message(message)
-result = consensus.execute_round()
-```
-
 ## Development
 
 ### Running Tests
