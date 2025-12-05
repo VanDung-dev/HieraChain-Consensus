@@ -10,17 +10,13 @@ use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 
 // Import modules
-pub mod consensus {
-    pub mod ordering_service;
-}
-
 pub mod core;
 pub mod error_mitigation;
 pub mod hierarchical;
 pub mod storage;
+pub mod consensus;
 
-// Re-export items for easier access
-use crate::consensus::ordering_service::*;
+use crate::consensus::{OrderingService, OrderingStatus, OrderingNode};
 
 /// Convert Python object to serde_json::Value
 fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
