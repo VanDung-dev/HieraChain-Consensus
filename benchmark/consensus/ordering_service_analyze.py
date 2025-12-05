@@ -21,9 +21,9 @@ def analyze_benchmark(file_path):
     plt.plot([d['event_count'] for d in rust_data],
              [d['events_per_second_submission'] for d in rust_data],
              label='Rust')
-    plt.title('So sánh hiệu suất Python vs Rust')
-    plt.xlabel('Số lượng sự kiện')
-    plt.ylabel('Sự kiện/giây')
+    plt.title('Python vs Rust Performance Comparison')
+    plt.xlabel('Number of events')
+    plt.ylabel('Events/sec')
     plt.legend()
     plt.grid()
 
@@ -35,8 +35,8 @@ def analyze_benchmark(file_path):
     plt.plot([d['event_count'] for d in rust_data],
              [d['block_retrieval_time'] for d in rust_data],
              label='Rust')
-    plt.xlabel('Số lượng sự kiện')
-    plt.ylabel('Thời gian truy xuất block (s)')
+    plt.xlabel('Number of Events')
+    plt.ylabel('Block retrieval time(s)')
     plt.legend()
     plt.grid()
 
