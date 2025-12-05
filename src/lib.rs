@@ -8,6 +8,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyFloat, PyInt, PyBool};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
+use std::sync::Arc;
+use crossbeam_channel::Receiver;
 
 // Import modules
 pub mod core;
@@ -16,7 +18,7 @@ pub mod hierarchical;
 pub mod storage;
 pub mod consensus;
 
-use crate::consensus::{OrderingService, OrderingStatus, OrderingNode};
+use crate::consensus::{OrderingService, OrderingStatus, OrderingNode, PendingEvent};
 
 /// Convert Python object to serde_json::Value
 fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
@@ -181,7 +183,12 @@ impl PyOrderingNode {
 /// PyO3 wrapper for OrderingService
 #[pyclass]
 pub struct PyOrderingService {
-    inner: std::sync::Arc<OrderingService>,
+    inner: Arc<OrderingService>,
+}
+
+// Helper function to start the processing thread
+fn start_ordering_service_processing(service: Arc<OrderingService>, receiver: Receiver<PendingEvent>) {
+    OrderingService::start(service, receiver);
 }
 
 #[pymethods]
@@ -204,8 +211,12 @@ impl PyOrderingService {
         }).collect();
 
         let config_json = dict_to_json(config)?;
-        let service = OrderingService::new(rust_nodes, config_json);
-        Ok(PyOrderingService { inner: service })
+        let (service_arc, receiver) = OrderingService::new(rust_nodes, config_json);
+        
+        // Start the processing thread immediately
+        start_ordering_service_processing(Arc::clone(&service_arc), receiver);
+
+        Ok(PyOrderingService { inner: service_arc })
     }
 
     fn receive_event(&self, event_data: &Bound<PyDict>, channel_id: String, submitter_org: String) -> PyResult<String> {
@@ -239,8 +250,13 @@ impl PyOrderingService {
         Ok(())
     }
 
+    // The start method is now handled internally during new()
+    // We can keep this as a no-op or remove it if not needed for external control
     fn start(&self) {
-        // Already started in new(), but can be called to restart
+        // The service is started upon creation. This method can be used for re-starting if stop() was called.
+        // However, the current design of OrderingService::start expects to take ownership of the Receiver.
+        // Re-implementing start/stop logic might be needed if full external control is desired.
+        // For now, it's a no-op as the thread is managed internally.
     }
 
     fn stop(&self) {
