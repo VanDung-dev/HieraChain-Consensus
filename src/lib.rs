@@ -9,12 +9,14 @@ use pyo3::types::{PyDict, PyList, PyString, PyFloat, PyInt, PyBool};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 
+// Import modules
 mod core {
     pub mod consensus {
         pub mod base_consensus;
     }
 }
 
+// Re-export items for easier access
 use crate::core::consensus::base_consensus::*;
 
 /// Convert Python object to serde_json::Value
@@ -121,157 +123,9 @@ fn map_to_dict(py: Python, map: &Map<String, Value>) -> PyResult<Py<PyAny>> {
     Ok(dict.into())
 }
 
-/// ConsensusNode class for Python
-#[pyclass]
-struct ConsensusNode {
-    node: core::consensus::base_consensus::ConsensusNode,
-}
-
-#[pymethods]
-impl ConsensusNode {
-    #[new]
-    fn new(id: String, public_key: String, address: String, reputation: f64) -> PyResult<Self> {
-        let node = core::consensus::base_consensus::ConsensusNode {
-            id,
-            public_key,
-            address,
-            reputation,
-        };
-        Ok(ConsensusNode { node })
-    }
-
-    #[getter]
-    fn id(&self) -> String {
-        self.node.id.clone()
-    }
-
-    #[getter]
-    fn public_key(&self) -> String {
-        self.node.public_key.clone()
-    }
-
-    #[getter]
-    fn address(&self) -> String {
-        self.node.address.clone()
-    }
-
-    #[getter]
-    fn reputation(&self) -> f64 {
-        self.node.reputation
-    }
-}
-
-/// ConsensusMessage class for Python
-#[pyclass]
-struct ConsensusMessage {
-    message: core::consensus::base_consensus::ConsensusMessage,
-}
-
-#[pymethods]
-impl ConsensusMessage {
-    #[new]
-    fn new(msg_type: String, sender: String, content: &Bound<PyDict>, timestamp: f64, signature: String) -> PyResult<Self> {
-        let content_map = dict_to_map(content)?;
-        let message = core::consensus::base_consensus::ConsensusMessage {
-            msg_type,
-            sender,
-            content: content_map,
-            timestamp,
-            signature,
-        };
-        Ok(ConsensusMessage { message })
-    }
-
-    #[getter]
-    fn msg_type(&self) -> String {
-        self.message.msg_type.clone()
-    }
-
-    #[getter]
-    fn sender(&self) -> String {
-        self.message.sender.clone()
-    }
-
-    #[getter]
-    fn content(&self, py: Python) -> PyResult<Py<PyAny>> {
-        map_to_dict(py, &self.message.content)
-    }
-
-    #[getter]
-    fn timestamp(&self) -> f64 {
-        self.message.timestamp
-    }
-
-    #[getter]
-    fn signature(&self) -> String {
-        self.message.signature.clone()
-    }
-}
-
-/// BaseConsensus class for Python
-#[pyclass]
-struct BaseConsensus {
-    consensus: core::consensus::base_consensus::BaseConsensus,
-}
-
-#[pymethods]
-impl BaseConsensus {
-    #[new]
-    fn new() -> PyResult<Self> {
-        let consensus = core::consensus::base_consensus::BaseConsensus::new();
-        Ok(BaseConsensus { consensus })
-    }
-
-    fn add_node(&mut self, node: &ConsensusNode) -> PyResult<()> {
-        self.consensus.add_node(node.node.clone());
-        Ok(())
-    }
-
-    fn remove_node(&mut self, node_id: &str) -> PyResult<()> {
-        self.consensus.remove_node(node_id);
-        Ok(())
-    }
-
-    fn select_leader(&mut self) -> PyResult<Option<String>> {
-        Ok(self.consensus.select_leader())
-    }
-
-    fn process_message(&mut self, message: &ConsensusMessage) -> PyResult<bool> {
-        self.consensus.process_message(message.message.clone())
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e))
-    }
-
-    fn execute_round(&mut self) -> PyResult<String> {
-        self.consensus.execute_round()
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e))
-    }
-
-    fn get_statistics(&self, py: Python) -> PyResult<Py<PyDict>> {
-        let stats = self.consensus.get_statistics();
-        let dict = PyDict::new(py);
-        dict.set_item("total_nodes", stats.total_nodes)?;
-        dict.set_item("current_round", stats.current_round)?;
-        dict.set_item("total_decisions", stats.total_decisions)?;
-        dict.set_item("leader", &stats.leader)?;
-        Ok(dict.into())
-    }
-
-    fn is_authorized_node(&self, node_id: &str) -> bool {
-        self.consensus.is_authorized_node(node_id)
-    }
-
-    fn update_reputation(&mut self, node_id: &str, delta: f64) -> PyResult<()> {
-        self.consensus.update_reputation(node_id, delta);
-        Ok(())
-    }
-}
-
 /// Python module
 #[pymodule]
 fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    m.add_class::<ConsensusNode>()?;
-    m.add_class::<ConsensusMessage>()?;
-    m.add_class::<BaseConsensus>()?;
     m.add_function(wrap_pyfunction!(validate_poa_block, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_block_hash, m)?)?;
     m.add_function(wrap_pyfunction!(bulk_validate_transactions, m)?)?;
