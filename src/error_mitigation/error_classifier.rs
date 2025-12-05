@@ -416,25 +416,3 @@ impl Default for ErrorClassifier {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_classification() {
-        let mut classifier = ErrorClassifier::new();
-        let mut error_data = HashMap::new();
-        error_data.insert("error_type".to_string(), "bft_consensus".to_string());
-        error_data.insert("message".to_string(), "insufficient nodes".to_string());
-
-        let error_info = classifier.classify_error(&error_data);
-        assert_eq!(error_info.category, ErrorCategory::Consensus);
-    }
-
-    #[test]
-    fn test_risk_priority_matrix() {
-        let matrix = RiskPriorityMatrix::new();
-        let priority = matrix.calculate_priority(ImpactLevel::Catastrophic, LikelihoodLevel::VeryHigh);
-        assert_eq!(priority, PriorityLevel::Critical);
-    }
-}

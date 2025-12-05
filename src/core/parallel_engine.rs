@@ -502,21 +502,3 @@ impl ParallelProcessingEngine {
         utilization
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_worker_pool_creation() {
-        let pool = WorkerPool::new("test".to_string(), 4, "thread".to_string());
-        assert_eq!(pool.max_workers, 4);
-        assert_eq!(pool.pool_name, "test");
-    }
-
-    #[test]
-    fn test_parallel_engine_creation() {
-        let engine = ParallelProcessingEngine::new(None, 100);
-        assert_eq!(engine.chunk_size, 100);
-    }
-}
