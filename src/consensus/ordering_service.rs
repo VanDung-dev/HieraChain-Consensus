@@ -4,13 +4,14 @@
 /// scalability and reduces communication bandwidth. The ordering service separates event
 /// ordering from consensus validation, enabling enterprise-scale event volumes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
 use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crossbeam_channel::{select, unbounded, Receiver, Sender};
 
 /// Ordering service status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,11 +222,13 @@ pub struct BlockBuilder {
 impl BlockBuilder {
     /// Initialize block builder
     pub fn new(config: Value) -> Self {
-        let block_size = config.get("block_size")
+        let block_size = config
+            .get("block_size")
             .and_then(|v| v.as_u64())
             .unwrap_or(500) as usize;
 
-        let batch_timeout = config.get("batch_timeout")
+        let batch_timeout = config
+            .get("batch_timeout")
             .and_then(|v| v.as_f64())
             .unwrap_or(2.0);
 
@@ -240,37 +243,65 @@ impl BlockBuilder {
 
     /// Add event to current batch
     pub fn add_event(&self, event: PendingEvent) -> Option<Value> {
-        if let Ok(mut batch) = self.current_batch.lock() {
+        let should_create_block = {
+            let mut batch = self.current_batch.lock().ok()?;
             batch.push(event);
-            if self.is_batch_ready() {
-                return self.create_block();
-            }
+            self.is_batch_ready_with_len(batch.len())
+        };
+
+        if should_create_block {
+            return self.create_block();
         }
         None
     }
 
     /// Force creation of block from current batch
     pub fn force_create_block(&self) -> Option<Value> {
-        if let Ok(batch) = self.current_batch.lock() {
-            if batch.is_empty() {
-                return None;
-            }
+        let is_empty = {
+            let batch = self.current_batch.lock().ok()?;
+            batch.is_empty()
+        };
+
+        if is_empty {
+            return None;
         }
         self.create_block()
     }
 
-    /// Check if current batch is ready for block creation
-    fn is_batch_ready(&self) -> bool {
-        if let Ok(batch) = self.current_batch.lock() {
-            if batch.len() >= self.block_size {
+    /// Check if current batch is ready for block creation (without locking)
+    fn is_batch_ready_with_len(&self, batch_len: usize) -> bool {
+        // Check batch size first (no lock needed, len passed in)
+        if batch_len >= self.block_size {
+            return true;
+        }
+
+        // Check timeout - only need to lock batch_start_time
+        if let Ok(start_time) = self.batch_start_time.lock() {
+            let elapsed = current_timestamp() - *start_time;
+            // Only trigger timeout if we have at least some events
+            if batch_len > 0 && elapsed >= self.batch_timeout {
                 return true;
             }
         }
 
+        false
+    }
+
+    /// Check if there's a batch that should be created due to timeout
+    pub fn has_pending_timeout_batch(&self) -> bool {
+        let batch_len = if let Ok(batch) = self.current_batch.lock() {
+            batch.len()
+        } else {
+            return false;
+        };
+
+        if batch_len == 0 {
+            return false;
+        }
+
         if let Ok(start_time) = self.batch_start_time.lock() {
-            if (current_timestamp() - *start_time) >= self.batch_timeout {
-                return true;
-            }
+            let elapsed = current_timestamp() - *start_time;
+            return elapsed >= self.batch_timeout;
         }
 
         false
@@ -366,9 +397,9 @@ pub struct OrderingService {
     status: Arc<Mutex<OrderingStatus>>,
 
     // Event processing components
-    event_pool: Arc<Mutex<Vec<PendingEvent>>>,
+    event_sender: Sender<PendingEvent>,
     block_builder: Arc<BlockBuilder>,
-    commit_queue: Arc<Mutex<Vec<Value>>>,
+    commit_queue: Arc<Mutex<VecDeque<Value>>>,
     certifier: Arc<EventCertifier>,
 
     // Processing state
@@ -383,22 +414,29 @@ pub struct OrderingService {
     // Processing control
     should_stop: Arc<Mutex<bool>>,
     processing_thread: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+
+    // We need to keep track of the number of events sent to the channel
+    // to properly calculate the number of pending events.
+    events_in_channel: Arc<Mutex<usize>>,
 }
 
 impl OrderingService {
-    /// Initialize ordering service
-    pub fn new(nodes: Vec<OrderingNode>, config: Value) -> Arc<Self> {
-        let nodes_map: HashMap<String, OrderingNode> = nodes.into_iter()
+    /// Initialize ordering service and return it along with the event receiver
+    pub fn new(nodes: Vec<OrderingNode>, config: Value) -> (Arc<Self>, Receiver<PendingEvent>) {
+        let nodes_map: HashMap<String, OrderingNode> = nodes
+            .into_iter()
             .map(|node| (node.node_id.clone(), node))
             .collect();
+
+        let (tx, rx) = unbounded();
 
         let service = Arc::new(OrderingService {
             nodes: Arc::new(Mutex::new(nodes_map)),
             config: config.clone(),
             status: Arc::new(Mutex::new(OrderingStatus::Active)),
-            event_pool: Arc::new(Mutex::new(Vec::new())),
-            block_builder: Arc::new(BlockBuilder::new(config)),
-            commit_queue: Arc::new(Mutex::new(Vec::new())),
+            event_sender: tx,
+            block_builder: Arc::new(BlockBuilder::new(config.clone())),
+            commit_queue: Arc::new(Mutex::new(VecDeque::new())),
             certifier: Arc::new(EventCertifier::new()),
             pending_events: Arc::new(Mutex::new(HashMap::new())),
             processed_events: Arc::new(Mutex::new(HashMap::new())),
@@ -407,19 +445,23 @@ impl OrderingService {
             statistics: Arc::new(Mutex::new(Statistics::default())),
             should_stop: Arc::new(Mutex::new(false)),
             processing_thread: Arc::new(Mutex::new(None)),
+            events_in_channel: Arc::new(Mutex::new(0)),
         });
 
         // Setup default validation rules
         service.setup_default_validation_rules();
 
         // Start processing
-        service.clone().start();
-
-        service
+        (service, rx)
     }
 
     /// Receive event from client or application channel
-    pub fn receive_event(&self, event_data: Value, channel_id: String, submitter_org: String) -> String {
+    pub fn receive_event(
+        &self,
+        event_data: Value,
+        channel_id: String,
+        submitter_org: String,
+    ) -> String {
         let event_id = Self::generate_event_id(&event_data, &channel_id);
 
         let pending_event = PendingEvent {
@@ -432,17 +474,24 @@ impl OrderingService {
             certification_result: None,
         };
 
-        if let Ok(mut pool) = self.event_pool.lock() {
-            pool.push(pending_event.clone());
-        }
-
         if let Ok(mut pending) = self.pending_events.lock() {
-            pending.insert(event_id.clone(), pending_event);
+            pending.insert(event_id.clone(), pending_event.clone());
         }
 
         if let Ok(mut stats) = self.statistics.lock() {
             stats.events_received += 1;
         }
+
+        if let Ok(mut count) = self.events_in_channel.lock() {
+            *count += 1;
+        }
+
+        self.event_sender.send(pending_event).unwrap_or_else(|e| {
+            eprintln!("Failed to send event to processing channel: {}", e);
+            if let Ok(mut count) = self.events_in_channel.lock() {
+                *count -= 1;
+            }
+        });
 
         event_id
     }
@@ -481,29 +530,48 @@ impl OrderingService {
     /// Get next completed block from the commit queue
     pub fn get_next_block(&self) -> Option<Value> {
         if let Ok(mut queue) = self.commit_queue.lock() {
-            if !queue.is_empty() {
-                return Some(queue.remove(0));
-            }
+            queue.pop_front()
+        } else {
+            None
         }
-        None
     }
 
     /// Get comprehensive service status
     pub fn get_service_status(&self) -> Value {
         let nodes_map = self.nodes.lock().ok();
-        let healthy_count = nodes_map.as_ref()
+        let healthy_count = nodes_map
+            .as_ref()
             .map(|n| n.values().filter(|node| node.is_healthy(30.0)).count())
             .unwrap_or(0);
 
         let total_nodes = nodes_map.as_ref().map(|n| n.len()).unwrap_or(0);
 
-        let leader = nodes_map.as_ref()
-            .and_then(|n| n.values().find(|node| node.is_leader).map(|n| n.node_id.clone()));
+        let leader = nodes_map.as_ref().and_then(|n| {
+            n.values()
+                .find(|node| node.is_leader)
+                .map(|n| n.node_id.clone())
+        });
 
-        let status = self.status.lock().ok().map(|s| s.to_string()).unwrap_or_default();
-        let pending_count = self.pending_events.lock().ok().map(|p| p.len()).unwrap_or(0);
+        let status = self
+            .status
+            .lock()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let pending_count = self
+            .pending_events
+            .lock()
+            .ok()
+            .map(|p| p.len())
+            .unwrap_or(0);
         let commit_count = self.commit_queue.lock().ok().map(|q| q.len()).unwrap_or(0);
-        let stats = self.statistics.lock().ok().map(|s| s.clone()).unwrap_or_default();
+        let stats = self
+            .statistics
+            .lock()
+            .ok()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        let events_in_channel = self.events_in_channel.lock().ok().map(|c| *c).unwrap_or(0);
 
         json!({
             "status": status,
@@ -513,7 +581,7 @@ impl OrderingService {
                 "leader": leader
             },
             "queues": {
-                "pending_events": self.event_pool.lock().ok().map(|p| p.len()).unwrap_or(0),
+                "pending_events": events_in_channel,
                 "commit_queue": commit_count,
                 "processing_events": pending_count
             },
@@ -531,22 +599,22 @@ impl OrderingService {
         self.certifier.add_validation_rule(rule);
     }
 
-    /// Start the ordering service
-    pub fn start(self: Arc<Self>) {
-        if let Ok(mut should_stop) = self.should_stop.lock() {
+    /// Start the ordering service's processing thread
+    pub fn start(service: Arc<Self>, receiver: Receiver<PendingEvent>) {
+        if let Ok(mut should_stop) = service.should_stop.lock() {
             *should_stop = false;
         }
 
-        if let Ok(mut status) = self.status.lock() {
+        if let Ok(mut status) = service.status.lock() {
             *status = OrderingStatus::Active;
         }
 
-        let service_clone = self.clone();
+        let service_clone = Arc::clone(&service);
         let thread = thread::spawn(move || {
-            service_clone.process_events();
+            service_clone.process_events(receiver);
         });
 
-        if let Ok(mut processing_thread) = self.processing_thread.lock() {
+        if let Ok(mut processing_thread) = service.processing_thread.lock() {
             *processing_thread = Some(thread);
         }
     }
@@ -563,31 +631,28 @@ impl OrderingService {
     }
 
     /// Main event processing loop
-    fn process_events(&self) {
+    fn process_events(&self, receiver: Receiver<PendingEvent>) {
+        let timeout = Duration::from_millis(100);
         loop {
-            if let Ok(should_stop) = self.should_stop.lock() {
-                if *should_stop {
-                    break;
-                }
+            if *self.should_stop.lock().unwrap() {
+                break;
             }
 
-            // Get event from pool
-            let event = if let Ok(mut pool) = self.event_pool.lock() {
-                if !pool.is_empty() {
-                    Some(pool.remove(0))
-                } else {
-                    None
+            select! {
+                recv(receiver) -> msg => {
+                    if let Ok(mut count) = self.events_in_channel.lock() {
+                        *count -= 1;
+                    }
+                    match msg {
+                        Ok(event) => self.process_single_event(event),
+                        Err(_) => {
+                            break;
+                        }
+                    }
+                },
+                default(timeout) => {
+                    self.check_timeout_block_creation();
                 }
-            } else {
-                None
-            };
-
-            if let Some(pending_event) = event {
-                self.process_single_event(pending_event);
-            } else {
-                // Check for timeout-based block creation
-                self.check_timeout_block_creation();
-                thread::sleep(Duration::from_millis(100));
             }
         }
     }
@@ -597,41 +662,51 @@ impl OrderingService {
         pending_event.status = EventStatus::Processing;
 
         let certification_result = self.certifier.validate(&pending_event);
-        pending_event.certification_result = Some(certification_result.clone());
+        let is_valid = certification_result
+            .get("valid")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        if let Some(valid) = certification_result.get("valid").and_then(|v| v.as_bool()) {
-            if valid {
-                pending_event.status = EventStatus::Certified;
+        pending_event.certification_result = Some(certification_result);
 
-                if let Ok(mut stats) = self.statistics.lock() {
-                    stats.events_certified += 1;
-                }
+        if is_valid {
+            pending_event.status = EventStatus::Certified;
+            let event_id = pending_event.event_id.clone();
 
-                // Add to block builder
-                if let Some(block) = self.block_builder.add_event(pending_event.clone()) {
-                    self.commit_block(block);
-                }
+            // Add event to block builder first (this is the critical path)
+            if let Some(block) = self.block_builder.add_event(pending_event.clone()) {
+                self.commit_block(block);
+            }
 
-                // Move to processed events
-                if let Ok(mut processed) = self.processed_events.lock() {
-                    processed.insert(pending_event.event_id.clone(), pending_event.clone());
-                }
+            // Batch lock operations together to reduce contention
+            if let Ok(mut stats) = self.statistics.lock() {
+                stats.events_certified += 1;
+            }
 
-                if let Ok(mut pending) = self.pending_events.lock() {
-                    pending.remove(&pending_event.event_id);
-                }
-            } else {
-                pending_event.status = EventStatus::Rejected;
+            // Update processed and pending events
+            if let Ok(mut processed) = self.processed_events.lock() {
+                processed.insert(event_id.clone(), pending_event);
+            }
 
-                if let Ok(mut stats) = self.statistics.lock() {
-                    stats.events_rejected += 1;
-                }
+            if let Ok(mut pending) = self.pending_events.lock() {
+                pending.remove(&event_id);
+            }
+        } else {
+            pending_event.status = EventStatus::Rejected;
+
+            if let Ok(mut stats) = self.statistics.lock() {
+                stats.events_rejected += 1;
             }
         }
     }
 
     /// Check if a block should be created due to timeout
     fn check_timeout_block_creation(&self) {
+        // Quick check first to avoid unnecessary lock acquisitions
+        if !self.block_builder.has_pending_timeout_batch() {
+            return;
+        }
+
         if let Some(block) = self.block_builder.force_create_block() {
             self.commit_block(block);
         }
@@ -647,7 +722,9 @@ impl OrderingService {
             0
         };
 
-        let first_node_id = self.nodes.lock()
+        let first_node_id = self
+            .nodes
+            .lock()
             .ok()
             .and_then(|n| n.keys().next().cloned())
             .unwrap_or_else(|| "unknown".to_string());
@@ -659,14 +736,16 @@ impl OrderingService {
         }
 
         if let Ok(mut queue) = self.commit_queue.lock() {
-            queue.push(block.clone());
+            queue.push_back(block.clone());
         }
 
         if let Ok(mut stats) = self.statistics.lock() {
             stats.blocks_created += 1;
             if let Some(event_count) = block.get("event_count").and_then(|v| v.as_u64()) {
-                stats.average_batch_size = (stats.average_batch_size * (stats.blocks_created as f64 - 1.0) +
-                     event_count as f64) / stats.blocks_created as f64;
+                stats.average_batch_size = (stats.average_batch_size
+                    * (stats.blocks_created as f64 - 1.0)
+                    + event_count as f64)
+                    / stats.blocks_created as f64;
             }
         }
     }
@@ -714,22 +793,34 @@ impl OrderingService {
                 .unwrap_or(false)
         }
 
-        self.certifier.add_validation_rule(validate_non_empty_entity_id);
+        self.certifier
+            .add_validation_rule(validate_non_empty_entity_id);
         self.certifier.add_validation_rule(validate_event_type);
-        self.certifier.add_validation_rule(validate_timestamp_format);
+        self.certifier
+            .add_validation_rule(validate_timestamp_format);
     }
 
     /// String representation of ordering service
     pub fn to_string(&self) -> String {
         let nodes_count = self.nodes.lock().ok().map(|n| n.len()).unwrap_or(0);
-        let status = self.status.lock().ok().map(|s| s.to_string()).unwrap_or_default();
+        let status = self
+            .status
+            .lock()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         format!("OrderingService(nodes={}, status={})", nodes_count, status)
     }
 
     /// Detailed string representation
     pub fn to_repr(&self) -> String {
         let nodes_count = self.nodes.lock().ok().map(|n| n.len()).unwrap_or(0);
-        let status = self.status.lock().ok().map(|s| s.to_string()).unwrap_or_default();
+        let status = self
+            .status
+            .lock()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         let events = self.events_processed.lock().ok().map(|e| *e).unwrap_or(0);
         format!(
             "OrderingService(nodes={}, status='{}', events_processed={})",
@@ -738,26 +829,6 @@ impl OrderingService {
     }
 }
 
-impl Clone for OrderingService {
-    fn clone(&self) -> Self {
-        OrderingService {
-            nodes: Arc::clone(&self.nodes),
-            config: self.config.clone(),
-            status: Arc::clone(&self.status),
-            event_pool: Arc::clone(&self.event_pool),
-            block_builder: Arc::clone(&self.block_builder),
-            commit_queue: Arc::clone(&self.commit_queue),
-            certifier: Arc::clone(&self.certifier),
-            pending_events: Arc::clone(&self.pending_events),
-            processed_events: Arc::clone(&self.processed_events),
-            blocks_created: Arc::clone(&self.blocks_created),
-            events_processed: Arc::clone(&self.events_processed),
-            statistics: Arc::clone(&self.statistics),
-            should_stop: Arc::clone(&self.should_stop),
-            processing_thread: Arc::clone(&self.processing_thread),
-        }
-    }
-}
 
 // ==================== Helper Functions ====================
 
