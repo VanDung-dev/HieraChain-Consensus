@@ -1,4 +1,1 @@
-pub mod consensus {
-    // This module contains consensus implementations
-}
-
+pub mod utils;
