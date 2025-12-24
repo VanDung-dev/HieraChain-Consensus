@@ -1,29 +1,34 @@
 //! HieraChain Consensus Library
-//! 
+//!
 //! This library provides the consensus mechanisms for the HieraChain blockchain platform.
 //! It includes implementations of consensus algorithms, node management, and message handling.
 //! The library is designed to be used with Python through PyO3 bindings.
 
+use crossbeam_channel::Receiver;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyFloat, PyInt, PyBool};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 use std::sync::Arc;
-use crossbeam_channel::Receiver;
 
 // Import modules
-pub mod core;
-pub mod hierarchical;
+// Import modules
 pub mod consensus;
+pub mod core;
+pub mod error_mitigation;
+pub mod hierarchical;
+pub mod security;
 
-use crate::consensus::{OrderingService, OrderingStatus, OrderingNode, PendingEvent};
+use crate::consensus::{OrderingNode, OrderingService, OrderingStatus, PendingEvent};
 
 /// Convert Python object to serde_json::Value
 fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
     if let Ok(val) = obj.cast::<PyString>() {
         Ok(Value::String(val.to_str()?.to_string()))
     } else if let Ok(val) = obj.cast::<PyFloat>() {
-        Ok(Value::Number(serde_json::Number::from_f64(val.value()).unwrap_or(serde_json::Number::from(0))))
+        Ok(Value::Number(
+            serde_json::Number::from_f64(val.value()).unwrap_or(serde_json::Number::from(0)),
+        ))
     } else if let Ok(val) = obj.cast::<PyInt>() {
         // Try to get as i64 first, if that fails, get as u64
         if let Ok(v) = val.extract::<i64>() {
@@ -63,7 +68,7 @@ fn json_to_py(py: Python, value: &Value) -> PyResult<Py<PyAny>> {
         Value::Bool(b) => {
             let obj = PyBool::new(py, *b).into_py_any(py)?;
             Ok(obj.into())
-        },
+        }
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 let obj = PyInt::new(py, i).into_py_any(py)?;
@@ -82,7 +87,7 @@ fn json_to_py(py: Python, value: &Value) -> PyResult<Py<PyAny>> {
         Value::String(s) => {
             let py_string = PyString::new(py, s);
             Ok(py_string.into())
-        },
+        }
         Value::Array(arr) => {
             let list = PyList::empty(py);
             for item in arr {
@@ -147,7 +152,14 @@ pub struct PyOrderingNode {
 #[pymethods]
 impl PyOrderingNode {
     #[new]
-    fn new(node_id: String, endpoint: String, is_leader: bool, weight: f64, status: String, last_heartbeat: f64) -> Self {
+    fn new(
+        node_id: String,
+        endpoint: String,
+        is_leader: bool,
+        weight: f64,
+        status: String,
+        last_heartbeat: f64,
+    ) -> Self {
         PyOrderingNode {
             node_id,
             endpoint,
@@ -185,7 +197,10 @@ pub struct PyOrderingService {
 }
 
 // Helper function to start the processing thread
-fn start_ordering_service_processing(service: Arc<OrderingService>, receiver: Receiver<PendingEvent>) {
+fn start_ordering_service_processing(
+    service: Arc<OrderingService>,
+    receiver: Receiver<PendingEvent>,
+) {
     OrderingService::start(service, receiver);
 }
 
@@ -193,33 +208,43 @@ fn start_ordering_service_processing(service: Arc<OrderingService>, receiver: Re
 impl PyOrderingService {
     #[new]
     fn new(nodes: Vec<PyOrderingNode>, config: &Bound<PyDict>) -> PyResult<Self> {
-        let rust_nodes: Vec<OrderingNode> = nodes.into_iter().map(|n| OrderingNode {
-            node_id: n.node_id,
-            endpoint: n.endpoint,
-            is_leader: n.is_leader,
-            weight: n.weight,
-            status: match n.status.as_str() {
-                "active" => OrderingStatus::Active,
-                "maintenance" => OrderingStatus::Maintenance,
-                "stopped" => OrderingStatus::Stopped,
-                "error" => OrderingStatus::Error,
-                _ => OrderingStatus::Active,
-            },
-            last_heartbeat: n.last_heartbeat,
-        }).collect();
+        let rust_nodes: Vec<OrderingNode> = nodes
+            .into_iter()
+            .map(|n| OrderingNode {
+                node_id: n.node_id,
+                endpoint: n.endpoint,
+                is_leader: n.is_leader,
+                weight: n.weight,
+                status: match n.status.as_str() {
+                    "active" => OrderingStatus::Active,
+                    "maintenance" => OrderingStatus::Maintenance,
+                    "stopped" => OrderingStatus::Stopped,
+                    "error" => OrderingStatus::Error,
+                    _ => OrderingStatus::Active,
+                },
+                last_heartbeat: n.last_heartbeat,
+            })
+            .collect();
 
         let config_json = dict_to_json(config)?;
         let (service_arc, receiver) = OrderingService::new(rust_nodes, config_json);
-        
+
         // Start the processing thread immediately
         start_ordering_service_processing(Arc::clone(&service_arc), receiver);
 
         Ok(PyOrderingService { inner: service_arc })
     }
 
-    fn receive_event(&self, event_data: &Bound<PyDict>, channel_id: String, submitter_org: String) -> PyResult<String> {
+    fn receive_event(
+        &self,
+        event_data: &Bound<PyDict>,
+        channel_id: String,
+        submitter_org: String,
+    ) -> PyResult<String> {
         let event_json = dict_to_json(event_data)?;
-        Ok(self.inner.receive_event(event_json, channel_id, submitter_org))
+        Ok(self
+            .inner
+            .receive_event(event_json, channel_id, submitter_org))
     }
 
     fn get_event_status(&self, event_id: String, py: Python) -> PyResult<Option<Py<PyAny>>> {
@@ -296,7 +321,7 @@ fn validate_poa_block(block_data: &Bound<PyDict>, authority_id: &str) -> PyResul
 /// Calculate block hash
 #[pyfunction]
 fn calculate_block_hash(block_data: &Bound<PyDict>, py: Python) -> PyResult<Py<PyAny>> {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let block_json = dict_to_json(block_data)?;
     let data = serde_json::to_string(&block_json).unwrap_or_default();
