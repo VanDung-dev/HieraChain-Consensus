@@ -4,6 +4,8 @@ HieraChain Consensus is a Rust-based blockchain consensus library that provides 
 
 This repository contains the consensus component of the larger [HieraChain project](https://github.com/VanDung-dev/HieraChain).
 
+> **Note**: This project is in development, it may be one part of HieraChain in the future, but for now PyArrow is still doing its job.
+
 ## Features
 
 - **Rust Implementation**: High-performance consensus algorithms written in Rust
