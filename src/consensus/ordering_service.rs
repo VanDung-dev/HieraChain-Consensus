@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 // Import from sibling modules
 // Import from sibling modules
 use crate::consensus::types::{
-    current_timestamp, EventStatus, OrderingNode, OrderingStatus, PendingEvent,
+    current_timestamp, EventPayload, EventStatus, OrderingNode, OrderingStatus, PendingEvent,
 };
 use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
@@ -240,21 +240,28 @@ impl OrderingService {
 
     pub fn receive_event(
         &self,
-        event_data: Value,
+        payload: EventPayload,
         channel_id: String,
         submitter_org: String,
     ) -> String {
-        let event_id = format!("{}-{}", channel_id, current_timestamp()); // Simplified ID
+        let event_id = format!("{}-{}", channel_id, current_timestamp());
+
+        let (event_data, arrow_data) = match payload {
+            EventPayload::Json(v) => (v, None),
+            EventPayload::Arrow(a) => {
+                (json!({"type": "arrow", "digest": a.schema_digest}), Some(a))
+            }
+        };
 
         // 1. Log to Journal (WAL)
         if let Err(e) = self.journal.log_event(&event_data) {
             eprintln!("Failed to write to journal: {}", e);
-            // In strict mode, we might want to panic or return error
         }
 
         let event = PendingEvent {
             event_id: event_id.clone(),
             event_data,
+            arrow_data,
             channel_id,
             submitter_org,
             received_at: current_timestamp(),
@@ -306,31 +313,31 @@ impl OrderingService {
                 }
 
                 select! {
-                     recv(receiver) -> msg => {
-                         if let Ok(mut event) = msg {
+                    recv(receiver) -> msg => {
+                        if let Ok(mut event) = msg {
                              // Process Event
-                             event.status = EventStatus::Processing;
+                            event.status = EventStatus::Processing;
 
                              // Certify
-                             if service_clone.certifier.validate(&mut event) {
-                                  event.status = EventStatus::Certified;
-                                  if let Some(block) = service_clone.block_builder.add_event(event.clone()) {
-                                      service_clone.commit_queue.lock().unwrap().push_back(block);
-                                  }
-                             } else {
-                                  event.status = EventStatus::Rejected;
-                             }
+                            if service_clone.certifier.validate(&mut event) {
+                                event.status = EventStatus::Certified;
+                                if let Some(block) = service_clone.block_builder.add_event(event.clone()) {
+                                    service_clone.commit_queue.lock().unwrap().push_back(block);
+                                }
+                            } else {
+                                event.status = EventStatus::Rejected;
+                            }
 
                              // Update map
-                             service_clone.pending_events.lock().unwrap().insert(event.event_id.clone(), event);
-                         }
-                     },
-                     default(Duration::from_millis(100)) => {
+                            service_clone.pending_events.lock().unwrap().insert(event.event_id.clone(), event);
+                        }
+                    },
+                    default(Duration::from_millis(100)) => {
                          // Check timeout
-                         if let Some(block) = service_clone.block_builder.check_timeout() {
-                             service_clone.commit_queue.lock().unwrap().push_back(block);
-                         }
-                     }
+                        if let Some(block) = service_clone.block_builder.check_timeout() {
+                            service_clone.commit_queue.lock().unwrap().push_back(block);
+                        }
+                    }
                 }
             }
         });

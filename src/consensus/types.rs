@@ -1,6 +1,7 @@
+use arrow::record_batch::RecordBatch;
 use serde::{Deserialize, Serialize};
-use serde_json::Value; // Keep for backward compat / metadata
-                       // use arrow::record_batch::RecordBatch; // Uncomment when fully integrating
+use serde_json::Value;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Helper to get current timestamp
@@ -72,12 +73,24 @@ impl OrderingNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingEvent {
     pub event_id: String,
-    // We keep event_data as Value for now to support the current JSON flow,
-    // but in the future this will be replaced/augmented with Arrow RecordBatch
-    pub event_data: Value,
+    pub event_data: Value, // Legacy JSON
+    #[serde(skip, default)]
+    pub arrow_data: Option<ArrowEventData>, // New Arrow Support
     pub channel_id: String,
     pub submitter_org: String,
     pub received_at: f64,
     pub status: EventStatus,
     pub certification_result: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrowEventData {
+    pub batch: Arc<RecordBatch>,
+    pub schema_digest: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventPayload {
+    Json(Value),
+    Arrow(ArrowEventData),
 }
