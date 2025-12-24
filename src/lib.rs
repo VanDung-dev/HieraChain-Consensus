@@ -13,9 +13,7 @@ use crossbeam_channel::Receiver;
 
 // Import modules
 pub mod core;
-pub mod error_mitigation;
 pub mod hierarchical;
-pub mod storage;
 pub mod consensus;
 
 use crate::consensus::{OrderingService, OrderingStatus, OrderingNode, PendingEvent};
