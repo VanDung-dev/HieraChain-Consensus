@@ -254,8 +254,17 @@ impl OrderingService {
         };
 
         // 1. Log to Journal (WAL)
-        if let Err(e) = self.journal.log_event(&event_data) {
-            eprintln!("Failed to write to journal: {}", e);
+        match &arrow_data {
+            Some(arrow) => {
+                if let Err(e) = self.journal.log_arrow_event(&arrow.batch) {
+                    eprintln!("Failed to write Arrow batch to journal: {}", e);
+                }
+            }
+            None => {
+                if let Err(e) = self.journal.log_event(&event_data) {
+                    eprintln!("Failed to write JSON event to journal: {}", e);
+                }
+            }
         }
 
         let event = PendingEvent {
