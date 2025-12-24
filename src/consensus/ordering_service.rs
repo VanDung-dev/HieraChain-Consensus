@@ -94,6 +94,7 @@ impl EventCertifier {
 }
 
 pub struct BlockBuilder {
+    #[allow(dead_code)]
     config: Value,
     block_size: usize,
     batch_timeout: f64,
@@ -188,6 +189,7 @@ impl BlockBuilder {
 
 pub struct OrderingService {
     nodes: Arc<Mutex<HashMap<String, OrderingNode>>>,
+    #[allow(dead_code)]
     config: Value,
     status: Arc<Mutex<OrderingStatus>>,
 
