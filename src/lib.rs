@@ -4,6 +4,9 @@
 //! It includes implementations of consensus algorithms, node management, and message handling.
 //! The library is designed to be used with Python through PyO3 bindings.
 
+use crate::consensus::types::{ArrowEventData, EventPayload};
+use arrow::pyarrow::FromPyArrow;
+use arrow::record_batch::RecordBatch;
 use crossbeam_channel::Receiver;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -11,7 +14,6 @@ use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
-// Import modules
 // Import modules
 pub mod consensus;
 pub mod core;
@@ -237,14 +239,30 @@ impl PyOrderingService {
 
     fn receive_event(
         &self,
-        event_data: &Bound<PyDict>,
+        event_data: &Bound<PyAny>,
         channel_id: String,
         submitter_org: String,
     ) -> PyResult<String> {
-        let event_json = dict_to_json(event_data)?;
-        Ok(self
-            .inner
-            .receive_event(event_json, channel_id, submitter_org))
+        // Try to convert to Arrow RecordBatch first
+        let payload = if let Ok(batch) = RecordBatch::from_pyarrow_bound(event_data) {
+            EventPayload::Arrow(ArrowEventData {
+                batch: Arc::new(batch),
+                schema_digest: "digest_placeholder".to_string(),
+            })
+        } else {
+            // Fallback to JSON
+            // We need to cast to PyDict if we expect a dict for JSON conversion
+            if let Ok(dict) = event_data.downcast::<PyDict>() {
+                let json = dict_to_json(dict)?;
+                EventPayload::Json(json)
+            } else {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Expected PyArrow Table or dict",
+                ));
+            }
+        };
+
+        Ok(self.inner.receive_event(payload, channel_id, submitter_org))
     }
 
     fn get_event_status(&self, event_id: String, py: Python) -> PyResult<Option<Py<PyAny>>> {
@@ -267,20 +285,11 @@ impl PyOrderingService {
     }
 
     fn add_validation_rule(&self, _rule: Py<PyAny>, _py: Python) -> PyResult<()> {
-        // Create a wrapper closure that calls the Python function
-        // Note: This would require storing the Python function and calling it from Rust
-        // For now, this is a placeholder that can be implemented with more complex binding logic
         Ok(())
     }
 
     // The start method is now handled internally during new()
-    // We can keep this as a no-op or remove it if not needed for external control
-    fn start(&self) {
-        // The service is started upon creation. This method can be used for re-starting if stop() was called.
-        // However, the current design of OrderingService::start expects to take ownership of the Receiver.
-        // Re-implementing start/stop logic might be needed if full external control is desired.
-        // For now, it's a no-op as the thread is managed internally.
-    }
+    fn start(&self) {}
 
     fn stop(&self) {
         self.inner.stop();
