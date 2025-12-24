@@ -1,4 +1,5 @@
 pub mod ordering_service;
+pub mod types;
 
-// Re-export the necessary components
-pub use ordering_service::{OrderingService, OrderingStatus, OrderingNode, PendingEvent};
+pub use ordering_service::OrderingService;
+pub use types::{EventStatus, OrderingNode, OrderingStatus, PendingEvent};
