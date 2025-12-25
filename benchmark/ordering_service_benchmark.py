@@ -321,12 +321,14 @@ def analyze_benchmark(file_path):
 if __name__ == "__main__":
     run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")
-    print("💾 Results saved to 'OrderingService_benchmark.json'")
 
     # Determine project root relative to this script
-    time.sleep(5)
+    time.sleep(1)
     project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ''))
     results_path = os.path.join(project_root, 'output', 'OrderingService_benchmark.json')
 
-    print(f"DEBUG: Reading results from: {results_path}")
-    analyze_benchmark(results_path)
+    if os.path.exists(results_path):
+        print(f"DEBUG: Reading results from: {results_path}")
+        analyze_benchmark(results_path)
+    else:
+        print("⚠ Result file not found, skipping analysis.")
