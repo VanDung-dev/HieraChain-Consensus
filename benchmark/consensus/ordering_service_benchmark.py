@@ -10,7 +10,7 @@ import json
 import sys
 import statistics
 import os
-import math
+import matplotlib.pyplot as plt
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -49,37 +49,6 @@ def create_test_events(count: int) -> List[Dict[str, Any]]:
         "data": json.dumps({"value": i}).encode('utf-8')
     } for i in range(count)]
 
-def wait_for_processing(service: Any, event_count: int, block_size: int, initial_blocks: int):
-    """
-    Waits for the service to process all submitted events by checking queue
-    and block creation status.
-    """
-    start_wait = time.perf_counter()
-    max_wait_time = 30.0  # Increased timeout for larger batches
-    
-    # Calculate the number of blocks we expect to be created in this run
-    expected_new_blocks = math.ceil(event_count / block_size)
-    total_expected_blocks = initial_blocks + expected_new_blocks
-
-    while time.perf_counter() - start_wait < max_wait_time:
-        status = service.get_service_status()
-        
-        # Check the number of events waiting in the input channel/queue
-        pending_queue = status.get('queues', {}).get('pending_events', -1)
-        
-        # Check the total number of blocks created by the service so far
-        blocks_created = status.get('statistics', {}).get('blocks_created', -1)
-
-        # If all events are processed and all expected blocks are created, we're done
-        if pending_queue == 0 and blocks_created >= total_expected_blocks:
-            print(f"  ...Processing finished in {time.perf_counter() - start_wait:.2f}s.")
-            return
-        
-        time.sleep(0.1)  # Non-blocking sleep
-
-    print(f"  ...Warning: Timed out after {max_wait_time}s waiting for processing.")
-    print(f"     - Events in queue: {pending_queue}")
-    print(f"     - Blocks created: {blocks_created} (Expected: {total_expected_blocks})")
 
 def ensure_service_active(service: Any, timeout: float = 10.0) -> bool:
     """
@@ -177,10 +146,7 @@ def benchmark_implementation(service: Any, event_count: int, block_size: int) ->
         print(f"  ❌ {err_msg}")
         return {"implementation": implementation_name, "event_count": event_count, "error": err_msg}
 
-    # 2. Wait for all events to be processed into blocks
-    wait_for_processing(service, event_count, block_size, initial_blocks)
-
-    # 3. Benchmark Block Retrieval
+    # 2. Benchmark Block Retrieval
     start_retrieval = time.perf_counter()
     blocks_retrieved = []
     retrieval_attempts = 0
@@ -302,7 +268,65 @@ def run_comprehensive_benchmark():
     print("\n" + "=" * 60)
     return all_results
 
+
+def analyze_benchmark(file_path):
+    # Read data from a JSON file
+    with open(file_path) as f:
+        data = json.load(f)
+
+    # Split data by language
+    python_data = [d for d in data if d['implementation'] == 'Python']
+    rust_data = [d for d in data if d['implementation'] == 'Rust']
+
+    # Draw a performance comparison chart
+    plt.figure(figsize=(10, 6))
+
+    # events_per_second chart
+    plt.subplot(2, 1, 1)
+    plt.plot([d['event_count'] for d in python_data],
+             [d['events_per_second_submission'] for d in python_data],
+             label='Python')
+    plt.plot([d['event_count'] for d in rust_data],
+             [d['events_per_second_submission'] for d in rust_data],
+             label='Rust')
+    plt.title('Python vs Rust Performance Comparison')
+    plt.xlabel('Number of events')
+    plt.ylabel('Events/sec')
+    plt.legend()
+    plt.grid()
+
+    # Block retrieval time chart
+    plt.subplot(2, 1, 2)
+    plt.plot([d['event_count'] for d in python_data],
+             [d['block_retrieval_time'] for d in python_data],
+             label='Python')
+    plt.plot([d['event_count'] for d in rust_data],
+             [d['block_retrieval_time'] for d in rust_data],
+             label='Rust')
+    plt.xlabel('Number of Events')
+    plt.ylabel('Block retrieval time(s)')
+    plt.legend()
+    plt.grid()
+
+    plt.tight_layout()
+
+    # Save chart to same directory as input file if possible, or relative output dir
+    output_dir = os.path.dirname(file_path)
+    if not output_dir:
+        output_dir = '.'
+    chart_path = os.path.join(output_dir, 'OrderingService_benchmark.png')
+    plt.savefig(chart_path)
+    print(f"Chart saved to '{chart_path}'")
+
 if __name__ == "__main__":
     run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")
     print("💾 Results saved to 'OrderingService_benchmark.json'")
+
+    # Determine project root relative to this script
+    time.sleep(5)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    results_path = os.path.join(project_root, 'output', 'OrderingService_benchmark.json')
+
+    print(f"DEBUG: Reading results from: {results_path}")
+    analyze_benchmark(results_path)
