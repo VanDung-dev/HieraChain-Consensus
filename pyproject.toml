@@ -5,12 +5,28 @@ build-backend = "maturin"
 [project]
 name = "hierachain-consensus"
 version = "0.0.0.dev2"
+description = "HieraChain Consensus is a Rust-based blockchain consensus library."
+readme = "README.md"
+authors = [{ name = "Nguyễn Lê Văn Dũng", email = "dungnguyen2661@gmail.com" }]
+license = { text = "Apache-2.0 OR MIT" }
 requires-python = ">=3.10"
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Programming Language :: Rust",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/VanDung-dev/HieraChain-Consensus"
+"Bug Reports" = "https://github.com/VanDung-dev/HieraChain-Consensus/issues"
+"Source" = "https://github.com/VanDung-dev/HieraChain-Consensus"
+"Documentation" = "https://github.com/VanDung-dev/HieraChain-Consensus/blob/main/README.md"
+"License-Apache" = "https://github.com/VanDung-dev/HieraChain-Consensus/blob/main/LICENSE-APACHE"
+"License-MIT" = "https://github.com/VanDung-dev/HieraChain-Consensus/blob/main/LICENSE-MIT"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
