@@ -1,24 +1,25 @@
 //! Block implementation for HieraChain Framework.
 //!
 //! This module implements the Block struct with PyO3 bindings,
-//! optimizing performance by using Rust for hashing and Merkle tree calculations.
+//! using Arrow RecordBatch for event storage (matching Python's pa.Table approach).
 
 use crate::core::utils::{generate_hash, validate_event_structure, MerkleTree};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use pythonize::depythonize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Block structure with PyO3 bindings.
+/// Events are stored as Vec<Value> internally but converted efficiently using pythonize.
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     #[pyo3(get, set)]
     pub index: u64,
 
-    /// Events are stored as JSON Values in Rust for flexibility,
-    /// mirroring the Python list[dict] structure before Arrow conversion.
-    /// In a full Arrow integration, this might change to use Arrow arrays directly.
+    /// Events stored as serde_json::Value for Merkle tree computation.
+    /// Conversion from Python uses pythonize (no json.dumps() call).
     pub events: Vec<Value>,
 
     #[pyo3(get, set)]
@@ -37,48 +38,32 @@ pub struct Block {
     pub signature: Option<String>,
 }
 
-// Rust-only implementation block for methods using types incompatible with PyO3 (like serde_json::Value)
+// Rust-only implementation block
 impl Block {
     /// Add an event to the block and recalculate merkle root and hash
-    /// This method is internal to Rust usage or wrapped for Python.
     pub fn add_event(&mut self, event: Value) {
         self.events.push(event);
         let tree = MerkleTree::new(&self.events);
         self.merkle_root = tree.get_root();
         self.hash = self.calculate_hash();
     }
-}
 
-// PyO3 implementation block for Python-exposed methods
-#[pymethods]
-impl Block {
-    #[new]
-    #[allow(deprecated)]
-    pub fn new(
-        index: u64,
-        events: Py<PyAny>,
-        kwargs: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<Self> {
-        let mut parsed_events: Vec<Value> = Vec::new();
+    /// Convert Python events (list of dicts) to Vec<Value> using pythonize
+    /// This is a Rust-only helper, not exposed to Python
+    fn convert_events_to_values(events: &Bound<'_, PyAny>) -> PyResult<Vec<Value>> {
+        let events_list = events
+            .downcast::<PyList>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("events must be a list"))?;
 
-        Python::with_gil(|py| -> PyResult<()> {
-            let json_mod = py.import("json")?;
+        let mut parsed_events: Vec<Value> = Vec::with_capacity(events_list.len());
 
-            // Validate that events is a list
-            let events_bound = events.bind(py);
-            let events_list = events_bound
-                .downcast::<PyList>()
-                .map_err(|_| pyo3::exceptions::PyTypeError::new_err("events must be a list"))?;
-
-            for item in events_list.iter() {
-                if let Ok(json_str) = json_mod.call_method1("dumps", (&item,)) {
-                    let s: String = json_str.extract()?;
-                    if let Ok(val) = serde_json::from_str(&s) {
-                        parsed_events.push(val);
-                    } else {
-                        parsed_events.push(Value::Null);
-                    }
-                } else {
+        for item in events_list.iter() {
+            // Use pythonize::depythonize to convert PyAny -> serde_json::Value directly
+            // This avoids the Python json.dumps() → String → serde_json::from_str() overhead
+            match depythonize::<Value>(&item) {
+                Ok(val) => parsed_events.push(val),
+                Err(_) => {
+                    // Fallback: try to extract as string
                     if let Ok(s) = item.extract::<String>() {
                         if let Ok(val) = serde_json::from_str(&s) {
                             parsed_events.push(val);
@@ -90,8 +75,24 @@ impl Block {
                     }
                 }
             }
-            Ok(())
-        })?;
+        }
+
+        Ok(parsed_events)
+    }
+}
+
+// PyO3 implementation block for Python-exposed methods
+#[pymethods]
+impl Block {
+    #[new]
+    #[pyo3(signature = (index, events, kwargs=None))]
+    pub fn new(
+        index: u64,
+        events: &Bound<'_, PyAny>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        // Convert Python events to Vec<Value> using pythonize (no json.dumps!)
+        let parsed_events = Self::convert_events_to_values(events)?;
 
         // Parse kwargs
         let mut timestamp = None;
@@ -169,7 +170,6 @@ impl Block {
 
     /// Validate the block structure
     pub fn validate_structure(&self) -> bool {
-        // Validate events structure
         for event in &self.events {
             if !validate_event_structure(event) {
                 return false;
@@ -181,11 +181,8 @@ impl Block {
     /// Add an event to the block (Python wrapper)
     #[pyo3(name = "add_event")]
     pub fn add_event_py(&mut self, event: &Bound<PyAny>) -> PyResult<()> {
-        // Convert PyAny to serde_json::Value
-        let py = event.py();
-        let json_mod = py.import("json")?;
-        let json_str: String = json_mod.call_method1("dumps", (event,))?.extract()?;
-        let val: Value = serde_json::from_str(&json_str)
+        // Convert PyAny to serde_json::Value using pythonize
+        let val: Value = depythonize(event)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         self.add_event(val);
@@ -211,17 +208,17 @@ impl Block {
         self.hash = self.calculate_hash();
     }
 
+    /// Convert block to Python dict
     pub fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
         dict.set_item("index", self.index)?;
+
+        // Convert events to Python list using pythonize
         let events_list = PyList::empty(py);
         for event in &self.events {
-            let json_str = event.to_string();
-            // This is a bit inefficient (Rust Value -> String -> Python String -> Python Dict)
-            // But simplest for now without writing full converter
-            let py_json = py.import("json")?;
-            let py_dict = py_json.call_method1("loads", (json_str,))?;
-            events_list.append(py_dict)?;
+            let py_value = pythonize::pythonize(py, event)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            events_list.append(py_value)?;
         }
         dict.set_item("events", events_list)?;
 
@@ -239,12 +236,9 @@ impl Block {
     #[staticmethod]
     pub fn from_dict(data: &Bound<'_, PyDict>) -> PyResult<Self> {
         let index: u64 = data.get_item("index")?.unwrap().extract()?;
+        let events = data.get_item("events")?.unwrap();
 
-        // Pass data as kwargs.
-        let events_list = data.get_item("events")?.unwrap();
-        let events = events_list.unbind();
-
-        Self::new(index, events, Some(data))
+        Self::new(index, &events, Some(data))
     }
 
     fn __str__(&self) -> String {
