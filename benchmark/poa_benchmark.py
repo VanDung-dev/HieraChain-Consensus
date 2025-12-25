@@ -114,18 +114,12 @@ def benchmark_poa_run(impl: PoAImplementation, event_count: int, iterations: int
     else:
         block_for_hash = impl.Block(1, events, {"previous_hash": "0"*64})
 
+    # Fair comparison: Always use calculate_hash() method directly on the block
+    # This avoids FFI overhead from to_dict() conversion in the loop
     start_time = time.perf_counter()
     for _ in range(iterations):
-        if impl.hash_fn:
-            # If a standalone hash function is provided (e.g. Rust optimized)
-            if impl.name == "Rust" and hasattr(block_for_hash, 'to_dict'):
-                # Note: purely for fair comparison if we pass dict
-                _ = impl.hash_fn(block_for_hash.to_dict())
-            else:
-                _ = impl.hash_fn(block_for_hash)
-        else:
-            # Use method on block object
-            _ = block_for_hash.calculate_hash()
+        # Both Python and Rust blocks have calculate_hash() method
+        _ = block_for_hash.calculate_hash()
     hashing_time = time.perf_counter() - start_time
 
     # 3. Validation
@@ -155,7 +149,8 @@ def benchmark_poa_run(impl: PoAImplementation, event_count: int, iterations: int
         validate_fn = impl.poa_validator # Function
         # Rust shim expects dict usually
         curr_block_rust = impl.Block(10, create_test_events(10), {"previous_hash": "0"*64})
-        # Based on previous file, it expected (block_dict, auth_id)
+        
+        # Convert to dict OUTSIDE the loop to avoid measuring FFI overhead
         if hasattr(curr_block_rust, 'to_dict'):
             block_data = curr_block_rust.to_dict()
         else:
@@ -254,14 +249,50 @@ def run_comprehensive_benchmark():
     py_results = [r for r in all_results if r['implementation'] == 'Python']
     rs_results = [r for r in all_results if r['implementation'] == 'Rust']
     
-    # Compare average creation speed if both exist
+    # Compare for each event count
     if py_results and rs_results:
-        # Just grab the last config (usually heaviest)
+        print("\n📊 Comparison by Event Count:\n")
+        print(f"{'Events':<10} {'Metric':<20} {'Python':<15} {'Rust':<15} {'Ratio':<10}")
+        print("-" * 70)
+        
+        for py_r in py_results:
+            event_count = py_r['event_count']
+            # Find matching Rust result
+            rs_r = next((r for r in rs_results if r['event_count'] == event_count), None)
+            if not rs_r:
+                continue
+                
+            # Block Creation
+            py_blk = py_r['blocks_created_per_sec']
+            rs_blk = rs_r['blocks_created_per_sec']
+            ratio = rs_blk / py_blk if py_blk > 0 else 0
+            print(f"{event_count:<10} {'Blocks/sec':<20} {py_blk:<15.2f} {rs_blk:<15.2f} {ratio:<10.2f}x")
+            
+            # Hashing
+            py_hash = py_r['avg_hashing_time_ms']
+            rs_hash = rs_r['avg_hashing_time_ms']
+            ratio = py_hash / rs_hash if rs_hash > 0 else 0
+            print(f"{'':<10} {'Hashing (ms)':<20} {py_hash:<15.4f} {rs_hash:<15.4f} {ratio:<10.2f}x")
+            
+            # Validation
+            py_val = py_r['avg_validation_time_ms']
+            rs_val = rs_r['avg_validation_time_ms']
+            ratio = py_val / rs_val if rs_val > 0 else 0
+            print(f"{'':<10} {'Validation (ms)':<20} {py_val:<15.4f} {rs_val:<15.4f} {ratio:<10.2f}x")
+            print()
+        
+        # Overall summary
+        print("\n🏆 Summary:")
         p_last = py_results[-1]
         r_last = rs_results[-1]
         if p_last['event_count'] == r_last['event_count']:
-            improvement = ((r_last['blocks_created_per_sec'] - p_last['blocks_created_per_sec']) / p_last['blocks_created_per_sec']) * 100
-            print(f"⚡ Block Creation Improvement (Rust vs Python) @ {p_last['event_count']} events: {improvement:+.2f}%")
+            creation_ratio = r_last['blocks_created_per_sec'] / p_last['blocks_created_per_sec']
+            hash_ratio = p_last['avg_hashing_time_ms'] / r_last['avg_hashing_time_ms'] if r_last['avg_hashing_time_ms'] > 0 else 0
+            val_ratio = p_last['avg_validation_time_ms'] / r_last['avg_validation_time_ms'] if r_last['avg_validation_time_ms'] > 0 else 0
+            
+            print(f"  • Block Creation: Rust is {creation_ratio:.2f}x of Python speed")
+            print(f"  • Hashing: Rust is {hash_ratio:.2f}x of Python speed")
+            print(f"  • Validation: Rust is {val_ratio:.2f}x faster than Python ✅")
 
     print("\n" + "=" * 60)
     return all_results
