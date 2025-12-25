@@ -184,12 +184,9 @@ impl BlockBuilder {
         let events: Vec<Value> = batch.iter().map(|e| e.event_data.clone()).collect();
 
         // 2. Compute Merkle Root (Using our new Crypto impl)
-        // Convert events to bytes for hashing (simplified canonicalization)
-        let leaves: Vec<Vec<u8>> = events
-            .iter()
-            .map(|e| serde_json::to_vec(e).unwrap_or_default())
-            .collect();
-        let merkle_root = MerkleTree::compute_root(leaves);
+        // MerkleTree::new expects &[Value] and returns hex String root
+        let tree = MerkleTree::new(&events);
+        let merkle_root = tree.get_root();
 
         let now = current_timestamp();
 
@@ -197,7 +194,7 @@ impl BlockBuilder {
             "events": events,
             "event_count": batch.len(),
             "created_at": now,
-            "merkle_root": hex::encode(merkle_root),
+            "merkle_root": merkle_root,
             // "hash": ... // Block hash usually computed on the whole structure
         });
 
