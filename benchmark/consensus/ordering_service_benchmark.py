@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 # Add the project root to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # --- Implementation Imports ---
 try:
@@ -81,6 +81,48 @@ def wait_for_processing(service: Any, event_count: int, block_size: int, initial
     print(f"     - Events in queue: {pending_queue}")
     print(f"     - Blocks created: {blocks_created} (Expected: {total_expected_blocks})")
 
+def ensure_service_active(service: Any, timeout: float = 10.0) -> bool:
+    """
+    Ensure the provided service is in ACTIVE status.
+    If the service exposes a start() method, call it once and wait for ACTIVE.
+    Returns True if ACTIVE within timeout, False otherwise.
+    """
+    try:
+        status = service.get_service_status()
+    except Exception:
+        status = {}
+
+    current = status.get('status') or status.get('state') or status.get('service_status') or None
+    # Normalize to string if enum-like object
+    if hasattr(current, "value"):
+        current = current.value
+
+    if current and str(current).lower() == "active":
+        return True
+
+    # Try to start if possible
+    try:
+        if hasattr(service, "start"):
+            service.start()
+    except Exception:
+        # ignore start exceptions; will check status below
+        pass
+
+    start_t = time.perf_counter()
+    while time.perf_counter() - start_t < timeout:
+        try:
+            status = service.get_service_status()
+            current = status.get('status') or status.get('state') or status.get('service_status') or None
+            if hasattr(current, "value"):
+                current = current.value
+            if current and str(current).lower() == "active":
+                return True
+        except Exception:
+            # continue polling if status retrieval fails transiently
+            pass
+        time.sleep(0.1)
+    return False
+
 # --- Main Benchmark Logic ---
 
 def benchmark_implementation(service: Any, event_count: int, block_size: int) -> Dict[str, Any]:
@@ -90,29 +132,69 @@ def benchmark_implementation(service: Any, event_count: int, block_size: int) ->
     implementation_name = "Python" if "hierachain.consensus" in str(type(service)) else "Rust"
     print(f"\n* Benchmarking {implementation_name} with {event_count} events...")
 
+    # Ensure service is ACTIVE before sending events
+    if not ensure_service_active(service, timeout=10.0):
+        err_msg = f"Service failed to reach ACTIVE status for {implementation_name}."
+        print(f"  ❌ {err_msg}")
+        return {"implementation": implementation_name, "event_count": event_count, "error": err_msg}
+
     # Get initial state to correctly measure this run
-    initial_status = service.get_service_status()
-    initial_blocks = initial_status.get('statistics', {}).get('blocks_created', 0)
+    try:
+        initial_status = service.get_service_status()
+        initial_blocks = initial_status.get('statistics', {}).get('blocks_created', 0)
+    except Exception:
+        initial_blocks = 0
 
     events = create_test_events(event_count)
     
     # 1. Benchmark Submission
     start_submission = time.perf_counter()
+    submission_errors = 0
     for event in events:
-        service.receive_event(event, "test_channel", "test_org")
+        try:
+            service.receive_event(event, "test_channel", "test_org")
+        except RuntimeError as re:
+            # If service drifted into non-ACTIVE (e.g., maintenance), try to recover once
+            submission_errors += 1
+            print(f"  ⚠ Warning: receive_event error: {re}")
+            if ensure_service_active(service, timeout=3.0):
+                try:
+                    service.receive_event(event, "test_channel", "test_org")
+                    submission_errors -= 1  # recovered for this event
+                except Exception as e:
+                    print(f"  ❌ Failed to submit event after recovery attempt: {e}")
+            else:
+                # give up on further submissions
+                break
+        except Exception as e:
+            submission_errors += 1
+            print(f"  ⚠ Warning: unexpected receive_event exception: {e}")
     submission_time = time.perf_counter() - start_submission
     
+    # If we couldn't submit many events, record an error
+    if submission_errors > 0 and submission_errors >= event_count:
+        err_msg = "All event submissions failed; skipping retrieval."
+        print(f"  ❌ {err_msg}")
+        return {"implementation": implementation_name, "event_count": event_count, "error": err_msg}
+
     # 2. Wait for all events to be processed into blocks
     wait_for_processing(service, event_count, block_size, initial_blocks)
 
     # 3. Benchmark Block Retrieval
     start_retrieval = time.perf_counter()
     blocks_retrieved = []
-    while True:
-        block = service.get_next_block()
+    retrieval_attempts = 0
+    max_retrieval_loops = 10000
+    while True and retrieval_attempts < max_retrieval_loops:
+        try:
+            block = service.get_next_block()
+        except Exception as e:
+            print(f"  ⚠ Warning: get_next_block exception: {e}")
+            break
         if block is None:
             break
         blocks_retrieved.append(block)
+        retrieval_attempts += 1
     retrieval_time = time.perf_counter() - start_retrieval
     
     # 4. Record Results
@@ -152,9 +234,15 @@ def run_comprehensive_benchmark():
         print("\n--- 🐍 PYTHON BENCHMARK ---")
         py_nodes = [PythonOrderingNode(**n) for n in nodes_config]
         python_service = PythonOrderingService(py_nodes, service_config)
-        for count in event_counts:
-            result = benchmark_implementation(python_service, count, service_config["block_size"])
-            all_results.append(result)
+        # Ensure the python service is ACTIVE before running any benchmarks
+        if not ensure_service_active(python_service, timeout=10.0):
+            err_msg = "Python service not ACTIVE after start; skipping Python benchmarks."
+            print(f"  ❌ {err_msg}")
+            all_results.append({"implementation": "Python", "error": err_msg})
+        else:
+            for count in event_counts:
+                result = benchmark_implementation(python_service, count, service_config["block_size"])
+                all_results.append(result)
 
     # --- Benchmark Rust ---
     if RUST_AVAILABLE:
@@ -162,10 +250,16 @@ def run_comprehensive_benchmark():
         try:
             rust_nodes = [RustOrderingNode(**n) for n in nodes_config]
             rust_service = RustOrderingService(rust_nodes, service_config)
-            for count in event_counts:
-                result = benchmark_implementation(rust_service, count, service_config["block_size"])
-                all_results.append(result)
-            rust_service.stop()
+            if not ensure_service_active(rust_service, timeout=10.0):
+                err_msg = "Rust service not ACTIVE after start; skipping Rust benchmarks."
+                print(f"  ❌ {err_msg}")
+                all_results.append({"implementation": "Rust", "error": err_msg})
+            else:
+                for count in event_counts:
+                    result = benchmark_implementation(rust_service, count, service_config["block_size"])
+                    all_results.append(result)
+                if hasattr(rust_service, "stop"):
+                    rust_service.stop()
         except Exception as e:
             print(f"  ❌ Rust initialization error: {e}")
             all_results.append({"implementation": "Rust", "error": str(e)})
@@ -173,7 +267,7 @@ def run_comprehensive_benchmark():
     # --- Save and Print Summary ---
     # Determine project root relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, '../../'))
+    project_root = os.path.abspath(os.path.join(script_dir, '..'))
     output_dir = os.path.join(project_root, 'output')
     
     # Ensure output directory exists
