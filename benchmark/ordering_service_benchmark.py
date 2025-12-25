@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 # Add the project root to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ''))
 
 # --- Implementation Imports ---
 try:
@@ -233,7 +233,7 @@ def run_comprehensive_benchmark():
     # --- Save and Print Summary ---
     # Determine project root relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, '..'))
+    project_root = os.path.abspath(os.path.join(script_dir, ''))
     output_dir = os.path.join(project_root, 'output')
     
     # Ensure output directory exists
@@ -313,7 +313,7 @@ def analyze_benchmark(file_path):
     # Save chart to same directory as input file if possible, or relative output dir
     output_dir = os.path.dirname(file_path)
     if not output_dir:
-        output_dir = '.'
+        output_dir = 'consensus'
     chart_path = os.path.join(output_dir, 'OrderingService_benchmark.png')
     plt.savefig(chart_path)
     print(f"Chart saved to '{chart_path}'")
@@ -325,7 +325,7 @@ if __name__ == "__main__":
 
     # Determine project root relative to this script
     time.sleep(5)
-    project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ''))
     results_path = os.path.join(project_root, 'output', 'OrderingService_benchmark.json')
 
     print(f"DEBUG: Reading results from: {results_path}")
