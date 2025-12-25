@@ -1,5 +1,6 @@
 """
 Benchmark script for comparing Rust and Python implementations of OrderingService.
+
 This script uses a corrected methodology where services are initialized once and
 reused across multiple benchmark runs to accurately measure performance.
 """
@@ -9,12 +10,12 @@ import json
 import sys
 import statistics
 import os
+import math
 from typing import List, Dict, Any
 from datetime import datetime
-import math
 
 # Add the project root to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 
 # --- Implementation Imports ---
 try:
@@ -44,7 +45,8 @@ def create_test_events(count: int) -> List[Dict[str, Any]]:
         "entity_id": f"entity_{i % 100}",
         "event": f"event_type_{i % 10}",
         "timestamp": time.time(),
-        "data": {"value": i}
+        "details": {"source": "benchmark"},
+        "data": json.dumps({"value": i}).encode('utf-8')
     } for i in range(count)]
 
 def wait_for_processing(service: Any, event_count: int, block_size: int, initial_blocks: int):
@@ -169,7 +171,18 @@ def run_comprehensive_benchmark():
             all_results.append({"implementation": "Rust", "error": str(e)})
 
     # --- Save and Print Summary ---
-    with open('../benchmark_results.json', 'w') as f:
+    # Determine project root relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '../../'))
+    output_dir = os.path.join(project_root, 'output')
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    results_path = os.path.join(output_dir, 'OrderingService_benchmark.json')
+    print(f"DEBUG: Saving results to: {results_path}")
+    
+    with open(results_path, 'w') as f:
         json.dump(all_results, f, indent=2)
     
     print("\n" + "=" * 60)
@@ -198,4 +211,4 @@ def run_comprehensive_benchmark():
 if __name__ == "__main__":
     run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")
-    print("💾 Results saved to 'benchmark_results.json'")
+    print("💾 Results saved to 'OrderingService_benchmark.json'")
