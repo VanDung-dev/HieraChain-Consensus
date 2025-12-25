@@ -227,6 +227,7 @@ pub struct OrderingService {
     // State
     pending_events: Arc<Mutex<HashMap<String, PendingEvent>>>,
     commit_queue: Arc<Mutex<VecDeque<Value>>>,
+    blocks_created: Arc<std::sync::atomic::AtomicUsize>, // For benchmarking
 
     // Control
     should_stop: Arc<Mutex<bool>>,
@@ -257,6 +258,7 @@ impl OrderingService {
             journal: Arc::new(journal),
             pending_events: Arc::new(Mutex::new(HashMap::new())),
             commit_queue: Arc::new(Mutex::new(VecDeque::new())),
+            blocks_created: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             should_stop: Arc::new(Mutex::new(false)),
             processing_thread: Arc::new(Mutex::new(None)),
         });
@@ -325,9 +327,19 @@ impl OrderingService {
     }
 
     pub fn get_service_status(&self) -> Value {
+        let pending_count = self.pending_events.lock().unwrap().len();
+        let blocks_count = self
+            .blocks_created
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         json!({
             "status": self.status.lock().unwrap().to_string(),
-            // detailed stats omitted for brevity in this refactor
+            "queues": {
+                "pending_events": pending_count
+            },
+            "statistics": {
+                "blocks_created": blocks_count
+            }
         })
     }
 
@@ -358,6 +370,7 @@ impl OrderingService {
                                 event.status = EventStatus::Certified;
                                 if let Some(block) = service_clone.block_builder.add_event(event.clone()) {
                                     service_clone.commit_queue.lock().unwrap().push_back(block);
+                                    service_clone.blocks_created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 }
                             } else {
                                 event.status = EventStatus::Rejected;
@@ -371,6 +384,7 @@ impl OrderingService {
                          // Check timeout
                         if let Some(block) = service_clone.block_builder.check_timeout() {
                             service_clone.commit_queue.lock().unwrap().push_back(block);
+                            service_clone.blocks_created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                     }
                 }
