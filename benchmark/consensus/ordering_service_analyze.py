@@ -54,7 +54,6 @@ def analyze_benchmark(file_path):
     output_dir = os.path.dirname(file_path)
     if not output_dir:
         output_dir = '.'
-    chart_path = os.path.join(output_dir, 'OrderingService_benchmark_comparison.png')
     chart_path = os.path.join(output_dir, 'OrderingService_benchmark.png')
     plt.savefig(chart_path)
     print(f"Chart saved to '{chart_path}'")
@@ -62,7 +61,7 @@ def analyze_benchmark(file_path):
 if __name__ == '__main__':
     # Determine project root relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, '../../'))
+    project_root = os.path.abspath(os.path.join(script_dir, '..'))
     results_path = os.path.join(project_root, 'output', 'OrderingService_benchmark.json')
     
     print(f"DEBUG: Reading results from: {results_path}")
