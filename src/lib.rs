@@ -363,6 +363,7 @@ fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     // Add PyO3 classes
     m.add_class::<PyOrderingNode>()?;
     m.add_class::<PyOrderingService>()?;
+    m.add_class::<crate::core::block::Block>()?;
 
     Ok(())
 }
