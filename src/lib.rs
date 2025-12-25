@@ -327,17 +327,11 @@ fn validate_poa_block(block_data: &Bound<PyDict>, authority_id: &str) -> PyResul
     Ok(!authority_id.is_empty())
 }
 
-/// Calculate block hash
 #[pyfunction]
 fn calculate_block_hash(block_data: &Bound<PyDict>, py: Python) -> PyResult<Py<PyAny>> {
-    use sha2::{Digest, Sha256};
-
+    use crate::core::utils::generate_hash;
     let block_json = dict_to_json(block_data)?;
-    let data = serde_json::to_string(&block_json).unwrap_or_default();
-    let mut hasher = Sha256::new();
-    hasher.update(data.as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
-
+    let hash = generate_hash(&block_json);
     Ok(PyString::new(py, &hash).into())
 }
 
