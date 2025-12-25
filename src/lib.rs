@@ -346,6 +346,73 @@ fn bulk_validate_transactions(transactions: &Bound<PyList>) -> PyResult<bool> {
     Ok(true)
 }
 
+/// Batch create multiple blocks at once - reduces FFI overhead
+/// Returns a list of Block objects
+#[pyfunction]
+fn batch_create_blocks(
+    py: Python,
+    events_list: &Bound<PyList>,
+    start_index: u64,
+    previous_hash: &str,
+) -> PyResult<Vec<Py<crate::core::block::Block>>> {
+    let mut blocks = Vec::with_capacity(events_list.len());
+    let mut prev_hash = previous_hash.to_string();
+
+    for (i, events) in events_list.iter().enumerate() {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("previous_hash", &prev_hash)?;
+
+        let block = crate::core::block::Block::new(
+            start_index + i as u64,
+            &events,
+            Some(&kwargs.as_borrowed()),
+        )?;
+
+        prev_hash = block.hash.clone();
+        blocks.push(Py::new(py, block)?);
+    }
+
+    Ok(blocks)
+}
+
+/// Batch calculate hashes for multiple data items - reduces FFI overhead
+/// Accepts a list of dicts and returns a list of hash strings
+#[pyfunction]
+fn batch_calculate_hashes(data_list: &Bound<PyList>, py: Python) -> PyResult<Vec<Py<PyAny>>> {
+    use crate::core::utils::generate_hash;
+
+    let mut results = Vec::with_capacity(data_list.len());
+
+    for item in data_list.iter() {
+        let dict = item
+            .downcast::<PyDict>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("Expected dict"))?;
+        let json_value = dict_to_json(&dict)?;
+        let hash = generate_hash(&json_value);
+        results.push(PyString::new(py, &hash).into());
+    }
+
+    Ok(results)
+}
+
+/// Generate Merkle root from a list of events - optimized Rust implementation
+#[pyfunction]
+fn calculate_merkle_root(events: &Bound<PyList>) -> PyResult<String> {
+    use crate::core::utils::{generate_hash, MerkleTree};
+    use pythonize::depythonize;
+
+    // Convert Python list to Vec<Value>
+    let values: Vec<Value> =
+        depythonize(events).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    // Generate leaves (hashes of each event)
+    let leaves: Vec<String> = values.iter().map(generate_hash).collect();
+
+    // Build tree from pre-computed leaves
+    let tree = MerkleTree::from_leaves(leaves);
+    Ok(tree.get_root())
+}
+
 /// Python module
 #[pymodule]
 fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
@@ -353,6 +420,11 @@ fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_poa_block, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_block_hash, m)?)?;
     m.add_function(wrap_pyfunction!(bulk_validate_transactions, m)?)?;
+
+    // Add optimized batch functions
+    m.add_function(wrap_pyfunction!(batch_create_blocks, m)?)?;
+    m.add_function(wrap_pyfunction!(batch_calculate_hashes, m)?)?;
+    m.add_function(wrap_pyfunction!(calculate_merkle_root, m)?)?;
 
     // Add PyO3 classes
     m.add_class::<PyOrderingNode>()?;
