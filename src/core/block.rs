@@ -49,31 +49,32 @@ impl Block {
     }
 
     /// Convert Python events (list of dicts) to Vec<Value> using pythonize
-    /// This is a Rust-only helper, not exposed to Python
+    /// Optimized version with batch conversion and minimal fallback overhead
     fn convert_events_to_values(events: &Bound<'_, PyAny>) -> PyResult<Vec<Value>> {
         let events_list = events
             .downcast::<PyList>()
             .map_err(|_| pyo3::exceptions::PyTypeError::new_err("events must be a list"))?;
 
-        let mut parsed_events: Vec<Value> = Vec::with_capacity(events_list.len());
+        let len = events_list.len();
 
+        // Pre-allocate with exact capacity
+        let mut parsed_events: Vec<Value> = Vec::with_capacity(len);
+
+        // Fast path: try to convert entire list at once
+        // This is more efficient when all items are well-formed dicts
+        if let Ok(all_values) = depythonize::<Vec<Value>>(events) {
+            return Ok(all_values);
+        }
+
+        // Fallback: convert items one by one (slower but handles edge cases)
         for item in events_list.iter() {
             // Use pythonize::depythonize to convert PyAny -> serde_json::Value directly
             // This avoids the Python json.dumps() → String → serde_json::from_str() overhead
-            match depythonize::<Value>(&item) {
-                Ok(val) => parsed_events.push(val),
-                Err(_) => {
-                    // Fallback: try to extract as string
-                    if let Ok(s) = item.extract::<String>() {
-                        if let Ok(val) = serde_json::from_str(&s) {
-                            parsed_events.push(val);
-                        } else {
-                            parsed_events.push(Value::String(s));
-                        }
-                    } else {
-                        parsed_events.push(Value::Null);
-                    }
-                }
+            if let Ok(val) = depythonize::<Value>(&item) {
+                parsed_events.push(val);
+            } else {
+                // Minimal fallback for edge cases
+                parsed_events.push(Value::Null);
             }
         }
 

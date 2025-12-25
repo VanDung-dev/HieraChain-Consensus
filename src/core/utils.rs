@@ -6,46 +6,111 @@
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::fmt::Write;
+
+// Reusable hasher for better performance - avoids repeated allocations
+// Thread-local to avoid synchronization overhead
+thread_local! {
+    static HASH_BUFFER: std::cell::RefCell<String> = std::cell::RefCell::new(String::with_capacity(4096));
+    static MERKLE_BUFFER: std::cell::RefCell<String> = std::cell::RefCell::new(String::with_capacity(256));
+}
 
 /// Generate SHA-256 hash for given data.
 /// Uses strict JSON canonicalization to match Python implementation.
+/// Optimized version with pre-allocated buffer and direct hashing.
+#[inline]
 pub fn generate_hash(data: &Value) -> String {
-    let canonical_json = to_canonical_json(data);
-    let mut hasher = Sha256::new();
-    hasher.update(canonical_json.as_bytes());
-    format!("{:x}", hasher.finalize())
+    HASH_BUFFER.with(|buffer| {
+        let mut buf = buffer.borrow_mut();
+        buf.clear();
+
+        // Write canonical JSON directly to buffer
+        write_canonical_json(data, &mut *buf);
+
+        // Hash the buffer
+        let hash = Sha256::digest(buf.as_bytes());
+
+        // Use faster hex encoding
+        faster_hex_encode(&hash)
+    })
 }
 
-/// Helper to produce canonical JSON string (sorted keys, no spaces)
+/// Fast hex encoding without format! overhead
+#[inline]
+fn faster_hex_encode(bytes: &[u8]) -> String {
+    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    let mut result = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        result.push(HEX_CHARS[(byte >> 4) as usize] as char);
+        result.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
+    }
+    result
+}
+
+/// Write canonical JSON directly to a buffer (avoids String allocations)
 /// Matches Python's `json.dumps(data, sort_keys=True, separators=(',', ':'))`
-fn to_canonical_json(value: &Value) -> String {
+#[inline]
+fn write_canonical_json(value: &Value, buf: &mut String) {
     match value {
         Value::Object(map) => {
-            // BTreeMap ensures keys are sorted
+            // BTreeMap ensures keys are sorted - collect into sorted order
             let sorted_map: BTreeMap<_, _> = map.iter().collect();
-            let mut result = String::from("{");
+            buf.push('{');
             for (i, (k, v)) in sorted_map.iter().enumerate() {
                 if i > 0 {
-                    result.push(',');
+                    buf.push(',');
                 }
-                result.push_str(&format!("\"{}\":{}", k, to_canonical_json(v)));
+                // Write key with quotes
+                buf.push('"');
+                escape_json_string(k, buf);
+                buf.push_str("\":");
+                // Recursively write value
+                write_canonical_json(v, buf);
             }
-            result.push('}');
-            result
+            buf.push('}');
         }
         Value::Array(vec) => {
-            let mut result = String::from("[");
+            buf.push('[');
             for (i, v) in vec.iter().enumerate() {
                 if i > 0 {
-                    result.push(',');
+                    buf.push(',');
                 }
-                result.push_str(&to_canonical_json(v));
+                write_canonical_json(v, buf);
             }
-            result.push(']');
-            result
+            buf.push(']');
         }
-        // Primitives should be standard JSON representation
-        _ => value.to_string(),
+        Value::String(s) => {
+            buf.push('"');
+            escape_json_string(s, buf);
+            buf.push('"');
+        }
+        Value::Number(n) => {
+            let _ = write!(buf, "{}", n);
+        }
+        Value::Bool(b) => {
+            buf.push_str(if *b { "true" } else { "false" });
+        }
+        Value::Null => {
+            buf.push_str("null");
+        }
+    }
+}
+
+/// Escape special JSON characters in strings
+#[inline]
+fn escape_json_string(s: &str, buf: &mut String) {
+    for c in s.chars() {
+        match c {
+            '"' => buf.push_str("\\\""),
+            '\\' => buf.push_str("\\\\"),
+            '\n' => buf.push_str("\\n"),
+            '\r' => buf.push_str("\\r"),
+            '\t' => buf.push_str("\\t"),
+            c if c.is_control() => {
+                let _ = write!(buf, "\\u{:04x}", c as u32);
+            }
+            c => buf.push(c),
+        }
     }
 }
 
@@ -63,29 +128,44 @@ impl MerkleTree {
         MerkleTree { leaves, root }
     }
 
-    /// Recursively build the Merkle Tree
+    /// Create a new Merkle Tree from pre-computed leaf hashes
+    /// This is more efficient when you already have the hashes
+    pub fn from_leaves(leaves: Vec<String>) -> Self {
+        let root = Self::build_tree(&leaves);
+        MerkleTree { leaves, root }
+    }
+
+    /// Recursively build the Merkle Tree - optimized with pre-allocated buffers
     fn build_tree(nodes: &[String]) -> String {
         if nodes.is_empty() {
             // Empty tree hash - SHA256("")
-            let mut hasher = Sha256::new();
-            hasher.update(b"");
-            return format!("{:x}", hasher.finalize());
+            let hash = Sha256::digest(b"");
+            return faster_hex_encode(&hash);
         }
 
         if nodes.len() == 1 {
             return nodes[0].clone();
         }
 
-        let mut new_level = Vec::new();
-        for chunk in nodes.chunks(2) {
-            let left = &chunk[0];
-            let right = if chunk.len() > 1 { &chunk[1] } else { left };
+        // Pre-allocate with expected capacity
+        let mut new_level = Vec::with_capacity((nodes.len() + 1) / 2);
 
-            let combined = format!("{}{}", left, right);
-            let mut hasher = Sha256::new();
-            hasher.update(combined.as_bytes());
-            new_level.push(format!("{:x}", hasher.finalize()));
-        }
+        MERKLE_BUFFER.with(|buffer| {
+            let mut buf = buffer.borrow_mut();
+
+            for chunk in nodes.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { left };
+
+                // Reuse buffer instead of format!()
+                buf.clear();
+                buf.push_str(left);
+                buf.push_str(right);
+
+                let hash = Sha256::digest(buf.as_bytes());
+                new_level.push(faster_hex_encode(&hash));
+            }
+        });
 
         Self::build_tree(&new_level)
     }
