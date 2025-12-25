@@ -4,10 +4,9 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration; // Removed generic SystemTime import
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
-// Import from sibling modules
 // Import from sibling modules
 use crate::consensus::types::{
     current_timestamp, EventPayload, EventStatus, OrderingNode, OrderingStatus, PendingEvent,
@@ -42,32 +41,57 @@ impl EventCertifier {
         if !event.event_data.is_object() {
             valid = false;
             errors.push("Invalid event structure".to_string());
+        } else if let Some(obj) = event.event_data.as_object() {
+            // Check required fields: entity_id, event, timestamp
+            if !obj.contains_key("entity_id") {
+                valid = false;
+                errors.push("Missing required field: entity_id".to_string());
+            }
+            if !obj.contains_key("event") {
+                valid = false;
+                errors.push("Missing required field: event".to_string());
+            }
+            if !obj.contains_key("timestamp") {
+                valid = false;
+                errors.push("Missing required field: timestamp".to_string());
+            } else {
+                // Check timestamp freshness (1 hour tolerance)
+                if let Some(ts_val) = obj.get("timestamp").and_then(|v| v.as_f64()) {
+                    let now = current_timestamp();
+                    if (ts_val - now).abs() > 3600.0 {
+                        valid = false;
+                        errors.push("Timestamp out of tolerance".to_string());
+                    }
+                } else {
+                    valid = false;
+                    errors.push("Invalid timestamp format".to_string());
+                }
+            }
         }
 
         // 2. Crypto Verification (Signature)
         // Check if event has 'signature' and 'sender' (public key)
-        if let Some(obj) = event.event_data.as_object() {
-            if let (Some(sig), Some(sender), Some(details)) = (
-                obj.get("signature").and_then(|v| v.as_str()),
-                obj.get("sender").and_then(|v| v.as_str()),
-                obj.get("details"),
-            ) {
-                // We need to reconstruct the message bytes.
-                // In Python: msg = details.get("payload")
-                // Here we assume details is the payload or contains it.
-                // This is a simplified check.
-                let msg_str = details
-                    .get("payload")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+        if valid {
+            // Only check signature if structure is valid
+            if let Some(obj) = event.event_data.as_object() {
+                if let (Some(sig), Some(sender), Some(details)) = (
+                    obj.get("signature").and_then(|v| v.as_str()),
+                    obj.get("sender").and_then(|v| v.as_str()),
+                    obj.get("details"),
+                ) {
+                    let msg_str = details
+                        .get("payload")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
-                // Convert hex to bytes
-                if let (Ok(sig_bytes), Ok(pk_bytes)) = (hex::decode(sig), hex::decode(sender)) {
-                    match verify_signature(&pk_bytes, msg_str.as_bytes(), &sig_bytes) {
-                        Ok(true) => {} // Valid
-                        _ => {
-                            valid = false;
-                            errors.push("Invalid signature".to_string());
+                    // Convert hex to bytes
+                    if let (Ok(sig_bytes), Ok(pk_bytes)) = (hex::decode(sig), hex::decode(sender)) {
+                        match verify_signature(&pk_bytes, msg_str.as_bytes(), &sig_bytes) {
+                            Ok(true) => {} // Valid
+                            _ => {
+                                valid = false;
+                                errors.push("Invalid signature".to_string());
+                            }
                         }
                     }
                 }
