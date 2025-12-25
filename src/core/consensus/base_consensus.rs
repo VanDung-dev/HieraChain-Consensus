@@ -6,13 +6,18 @@
 #![allow(unused)]
 
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 /// Trait defining the interface for consensus mechanisms
 /// This corresponds to the abstract base class in Python
 pub trait BaseConsensusTrait {
+    /// Get the number of active validators/authorities.
+    fn get_validator_count(&self) -> u64 {
+        0
+    }
+
     /// Validate a block according to the consensus rules
     fn validate_block(&self, block: &Block, previous_block: &Block) -> bool;
 
@@ -23,7 +28,87 @@ pub trait BaseConsensusTrait {
     fn can_create_block(&self, authority_id: Option<&str>) -> bool;
 
     /// Validate an event according to consensus-specific rules
-    fn validate_event_for_consensus(&self, event: &Value) -> bool;
+    fn validate_event_for_consensus(&self, event: &Value) -> bool {
+        // Basic validation - ensure it's an object
+        let event_obj = match event.as_object() {
+            Some(obj) => obj,
+            None => return false, // Equivalent to Python's isinstance(event, dict) check
+        };
+
+        // Must have event type
+        if !event_obj.contains_key("event") {
+            return false;
+        }
+
+        // Must have timestamp
+        if !event_obj.contains_key("timestamp") {
+            return false;
+        }
+
+        // Should not contain cryptocurrency terms
+        // Check only in relevant fields, not in hash/signature fields
+        let forbidden_terms = ["transaction", "mining", "coin", "token", "wallet", "fee"];
+
+        let check_value = |val: &Value| -> bool {
+            let val_str = match val {
+                Value::String(s) => s.clone(),
+                _ => val.to_string(),
+            };
+            let lower_val = val_str.to_lowercase();
+            for term in &forbidden_terms {
+                if lower_val.contains(term) {
+                    return true;
+                }
+            }
+            false
+        };
+
+        // Check event type field
+        if let Some(event_type) = event_obj.get("event") {
+            if check_value(event_type) {
+                return false;
+            }
+        }
+
+        // Check details field (but exclude hash/signature fields)
+        if let Some(details) = event_obj.get("details") {
+            if let Some(details_obj) = details.as_object() {
+                for (key, value) in details_obj {
+                    if !["authority_signature", "signature", "hash", "proof_hash"]
+                        .contains(&key.as_str())
+                    {
+                        if check_value(value) {
+                            return false;
+                        }
+                    }
+                }
+            } else if details.is_string() {
+                if check_value(details) {
+                    return false;
+                }
+            }
+        }
+
+        // Check other top-level fields (excluding hash/signature fields)
+        let excluded_keys = [
+            "authority_signature",
+            "signature",
+            "hash",
+            "proof_hash",
+            "details",
+            "event",
+            "timestamp",
+        ];
+        for (key, value) in event_obj {
+            if !excluded_keys.contains(&key.as_str()) {
+                if check_value(value) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 
     /// Get information about the consensus mechanism
     fn get_consensus_info(&self) -> Map<String, Value>;
@@ -65,7 +150,13 @@ pub struct Block {
 impl Block {
     /// Create a new block
     #[allow(dead_code)]
-    pub fn new(index: u64, events: Vec<Value>, timestamp: Option<f64>, previous_hash: String, nonce: u64) -> Self {
+    pub fn new(
+        index: u64,
+        events: Vec<Value>,
+        timestamp: Option<f64>,
+        previous_hash: String,
+        nonce: u64,
+    ) -> Self {
         let timestamp = timestamp.unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
