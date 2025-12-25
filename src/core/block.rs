@@ -4,14 +4,19 @@
 //! using Arrow RecordBatch for event storage (matching Python's pa.Table approach).
 
 use crate::core::utils::{generate_hash, validate_event_structure, MerkleTree};
+use arrow::array::{Array, AsArray};
+use arrow::pyarrow::FromPyArrow;
+use arrow::record_batch::RecordBatch;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pythonize::depythonize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 /// Block structure with PyO3 bindings.
 /// Events are stored as Vec<Value> internally but converted efficiently using pythonize.
+/// Optionally stores Arrow RecordBatch for zero-copy interop with Python.
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
@@ -21,6 +26,10 @@ pub struct Block {
     /// Events stored as serde_json::Value for Merkle tree computation.
     /// Conversion from Python uses pythonize (no json.dumps() call).
     pub events: Vec<Value>,
+
+    /// Optional Arrow RecordBatch for zero-copy storage
+    #[serde(skip)]
+    pub arrow_events: Option<Arc<RecordBatch>>,
 
     #[pyo3(get, set)]
     pub timestamp: f64,
@@ -46,6 +55,53 @@ impl Block {
         let tree = MerkleTree::new(&self.events);
         self.merkle_root = tree.get_root();
         self.hash = self.calculate_hash();
+    }
+
+    /// Convert Arrow RecordBatch to Vec<Value> for Merkle tree computation
+    /// This extracts data from Arrow format to JSON for hashing
+    fn arrow_to_values(batch: &RecordBatch) -> Vec<Value> {
+        let mut values = Vec::with_capacity(batch.num_rows());
+
+        // Get column names
+        let schema = batch.schema();
+        let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+
+        for row_idx in 0..batch.num_rows() {
+            let mut row_map = serde_json::Map::new();
+
+            for (col_idx, field_name) in field_names.iter().enumerate() {
+                let column = batch.column(col_idx);
+
+                // Handle different Arrow types - simplified for common cases
+                if let Some(arr) = column.as_string_opt::<i32>() {
+                    if arr.is_valid(row_idx) {
+                        row_map.insert(
+                            field_name.to_string(),
+                            Value::String(arr.value(row_idx).to_string()),
+                        );
+                    }
+                } else if let Some(arr) = column.as_primitive_opt::<arrow::datatypes::Float64Type>()
+                {
+                    if arr.is_valid(row_idx) {
+                        if let Some(n) = serde_json::Number::from_f64(arr.value(row_idx)) {
+                            row_map.insert(field_name.to_string(), Value::Number(n));
+                        }
+                    }
+                } else if let Some(arr) = column.as_primitive_opt::<arrow::datatypes::Int64Type>() {
+                    if arr.is_valid(row_idx) {
+                        row_map.insert(
+                            field_name.to_string(),
+                            Value::Number(arr.value(row_idx).into()),
+                        );
+                    }
+                }
+                // Add more types as needed
+            }
+
+            values.push(Value::Object(row_map));
+        }
+
+        values
     }
 
     /// Convert Python events (list of dicts) to Vec<Value> using pythonize
@@ -92,8 +148,17 @@ impl Block {
         events: &Bound<'_, PyAny>,
         kwargs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
-        // Convert Python events to Vec<Value> using pythonize (no json.dumps!)
-        let parsed_events = Self::convert_events_to_values(events)?;
+        // Try to convert from Arrow RecordBatch first (zero-copy preferred)
+        let (parsed_events, arrow_batch) =
+            if let Ok(batch) = RecordBatch::from_pyarrow_bound(events) {
+                // Fast path: Arrow data - extract values for Merkle computation
+                let values = Self::arrow_to_values(&batch);
+                (values, Some(Arc::new(batch)))
+            } else {
+                // Fallback: Convert Python list to Vec<Value>
+                let values = Self::convert_events_to_values(events)?;
+                (values, None)
+            };
 
         // Parse kwargs
         let mut timestamp = None;
@@ -142,6 +207,7 @@ impl Block {
         let mut block = Block {
             index,
             events: parsed_events,
+            arrow_events: arrow_batch,
             timestamp,
             previous_hash,
             nonce,
