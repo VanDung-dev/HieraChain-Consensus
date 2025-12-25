@@ -10,6 +10,8 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
+use crate::core::block::Block;
+
 /// Trait defining the interface for consensus mechanisms
 /// This corresponds to the abstract base class in Python
 pub trait BaseConsensusTrait {
@@ -127,105 +129,6 @@ pub trait BaseConsensusTrait {
     /// Estimate the time required to create a new block
     fn estimate_block_time(&self) -> f64 {
         10.0 // Default 10 seconds
-    }
-}
-
-/// Block structure for HieraChain
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Block {
-    /// Block index in the chain
-    pub index: u64,
-    /// List of events (multiple events per block)
-    pub events: Vec<Value>,
-    /// Block creation timestamp
-    pub timestamp: f64,
-    /// Hash of the previous block
-    pub previous_hash: String,
-    /// Nonce value for proof-of-work (if needed)
-    pub nonce: u64,
-    /// Block hash
-    pub hash: String,
-}
-
-impl Block {
-    /// Create a new block
-    #[allow(dead_code)]
-    pub fn new(
-        index: u64,
-        events: Vec<Value>,
-        timestamp: Option<f64>,
-        previous_hash: String,
-        nonce: u64,
-    ) -> Self {
-        let timestamp = timestamp.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_secs_f64())
-                .unwrap_or(0.0)
-        });
-
-        let mut block = Block {
-            index,
-            events,
-            timestamp,
-            previous_hash,
-            nonce,
-            hash: String::new(),
-        };
-
-        block.hash = block.calculate_hash();
-        block
-    }
-
-    /// Calculate the hash of the block
-    #[allow(dead_code)]
-    pub fn calculate_hash(&self) -> String {
-        let block_data = serde_json::json!({
-            "index": self.index,
-            "events": self.events,
-            "timestamp": self.timestamp,
-            "previous_hash": self.previous_hash,
-            "nonce": self.nonce
-        });
-
-        let block_string = serde_json::to_string(&block_data).unwrap_or_default();
-        format!("{:x}", Sha256::digest(block_string.as_bytes()))
-    }
-
-    /// Add an event to the block and recalculate hash
-    #[allow(dead_code)]
-    pub fn add_event(&mut self, event: Value) {
-        self.events.push(event);
-        self.hash = self.calculate_hash();
-    }
-
-    /// Validate the block structure according to framework guidelines
-    #[allow(dead_code)]
-    pub fn validate_structure(&self) -> bool {
-        // Check if events is a list (not a single event)
-        // In Rust, this is guaranteed by the type system
-
-        // Check if each event has required metadata structure
-        for event_value in &self.events {
-            if let Value::Object(event) = event_value {
-                // Events should have entity_id as metadata (not as block identifier)
-                if let Some(entity_id) = event.get("entity_id") {
-                    if !entity_id.is_string() {
-                        return false;
-                    }
-                }
-
-                // Events should have event type
-                if !event.contains_key("event") {
-                    return false;
-                }
-            } else {
-                // Event is not an object
-                return false;
-            }
-        }
-
-        true
     }
 }
 
