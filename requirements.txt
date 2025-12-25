@@ -5,3 +5,4 @@ setuptools-rust>=1.0.0
 setuptools-scm>=9.0.0
 psutil>=7.0.0
 pytest>=9.0.0
+matplotlib>=3.0.0
