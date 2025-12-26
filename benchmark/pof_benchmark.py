@@ -487,13 +487,17 @@ def analyze_benchmark(file_path):
     # 1. Block Creation Time
     ax = axes[0, 0]
     if python_data:
-        ax.plot([d['event_count'] for d in python_data],
-                [d['avg_creation_time_ms'] for d in python_data],
-                marker='o', label='Python', linewidth=2)
+        x = [d['event_count'] for d in python_data]
+        y = [d['avg_creation_time_ms'] for d in python_data]
+        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+
     if rust_data:
-        ax.plot([d['event_count'] for d in rust_data],
-                [d['avg_creation_time_ms'] for d in rust_data],
-                marker='x', label='Rust', linewidth=2)
+        x = [d['event_count'] for d in rust_data]
+        y = [d['avg_creation_time_ms'] for d in rust_data]
+        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+        ax.fill_between(x, y, alpha=0.15, color='darkorange')
+
     ax.set_title('Block Creation Time vs Event Count')
     ax.set_xlabel('Number of Events')
     ax.set_ylabel('Avg Time (ms)')
@@ -503,13 +507,17 @@ def analyze_benchmark(file_path):
     # 2. Hashing Time
     ax = axes[0, 1]
     if python_data:
-        ax.plot([d['event_count'] for d in python_data],
-                [d['avg_hashing_time_ms'] for d in python_data],
-                marker='o', label='Python', linewidth=2)
+        x = [d['event_count'] for d in python_data]
+        y = [d['avg_hashing_time_ms'] for d in python_data]
+        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+
     if rust_data:
-        ax.plot([d['event_count'] for d in rust_data],
-                [d['avg_hashing_time_ms'] for d in rust_data],
-                marker='x', label='Rust', linewidth=2)
+        x = [d['event_count'] for d in rust_data]
+        y = [d['avg_hashing_time_ms'] for d in rust_data]
+        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+        ax.fill_between(x, y, alpha=0.15, color='darkorange')
+
     ax.set_title('Hashing Time vs Event Count')
     ax.set_xlabel('Number of Events')
     ax.set_ylabel('Avg Time (ms)')
@@ -519,13 +527,17 @@ def analyze_benchmark(file_path):
     # 3. Validation Time
     ax = axes[1, 0]
     if python_data:
-        ax.plot([d['event_count'] for d in python_data],
-                [d['avg_validation_time_ms'] for d in python_data],
-                marker='o', label='Python', linewidth=2)
+        x = [d['event_count'] for d in python_data]
+        y = [d['avg_validation_time_ms'] for d in python_data]
+        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+
     if rust_data:
-        ax.plot([d['event_count'] for d in rust_data],
-                [d['avg_validation_time_ms'] for d in rust_data],
-                marker='x', label='Rust', linewidth=2)
+        x = [d['event_count'] for d in rust_data]
+        y = [d['avg_validation_time_ms'] for d in rust_data]
+        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+        ax.fill_between(x, y, alpha=0.15, color='darkorange')
+
     ax.set_title('Block Validation Time vs Event Count')
     ax.set_xlabel('Number of Events')
     ax.set_ylabel('Avg Time (ms)')
@@ -567,9 +579,9 @@ def analyze_benchmark(file_path):
             rs_values.append(rs_val)
         
         ax.bar(x - width/2, py_values, width,
-               label='Python', color='steelblue', alpha=0.8)
+               label='Python', color='steelblue', alpha=0.9)
         ax.bar(x + width/2, rs_values, width,
-               label='Rust', color='darkorange', alpha=0.8)
+               label='Rust', color='darkorange', alpha=0.9)
         ax.set_xticks(x)
         ax.set_xticklabels([str(vc) for vc in validator_counts])
     

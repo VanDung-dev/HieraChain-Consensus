@@ -331,20 +331,22 @@ def analyze_benchmark(file_path):
         ax = axes[i]
         
         if python_data:
-            ax.plot([d['event_count'] for d in python_data],
-                    [d[key] for d in python_data],
-                    marker='o', label='Python')
+            x = [d['event_count'] for d in python_data]
+            y = [d[key] for d in python_data]
+            ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+            ax.fill_between(x, y, alpha=0.15, color='steelblue')
             
         if rust_data:
-            ax.plot([d['event_count'] for d in rust_data],
-                    [d[key] for d in rust_data],
-                    marker='x', label='Rust')
+            x = [d['event_count'] for d in rust_data]
+            y = [d[key] for d in rust_data]
+            ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+            ax.fill_between(x, y, alpha=0.15, color='darkorange')
                     
         ax.set_title(f'{label} vs Event Count')
         ax.set_xlabel('Number of Events')
         ax.set_ylabel('Avg Time (ms)')
         ax.legend()
-        ax.grid(True)
+        ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
     
