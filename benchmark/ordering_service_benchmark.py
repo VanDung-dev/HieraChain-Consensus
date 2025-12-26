@@ -298,15 +298,20 @@ def analyze_benchmark(file_path):
     fig.suptitle('Ordering Service Benchmark Results', fontsize=14, fontweight='bold')
 
     # 1. events_per_second chart
+    # 1. events_per_second chart
     ax = axes[0]
     if python_data:
-        ax.plot([d['event_count'] for d in python_data],
-                 [d['events_per_second_submission'] for d in python_data],
-                 marker='o', label='Python', linewidth=2)
+        x = [d['event_count'] for d in python_data]
+        y = [d['events_per_second_submission'] for d in python_data]
+        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+
     if rust_data:
-        ax.plot([d['event_count'] for d in rust_data],
-                 [d['events_per_second_submission'] for d in rust_data],
-                 marker='x', label='Rust', linewidth=2)
+        x = [d['event_count'] for d in rust_data]
+        y = [d['events_per_second_submission'] for d in rust_data]
+        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+        ax.fill_between(x, y, alpha=0.15, color='darkorange')
+
     ax.set_title('Submission Throughput (Events/sec)')
     ax.set_xlabel('Number of Events')
     ax.set_ylabel('Events/sec')
@@ -316,13 +321,16 @@ def analyze_benchmark(file_path):
     # 2. Block retrieval time chart
     ax = axes[1]
     if python_data:
-        ax.plot([d['event_count'] for d in python_data],
-                 [d['block_retrieval_time'] for d in python_data],
-                 marker='o', label='Python', linewidth=2)
+        x = [d['event_count'] for d in python_data]
+        y = [d['block_retrieval_time'] for d in python_data]
+        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
+        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+        
     if rust_data:
-        ax.plot([d['event_count'] for d in rust_data],
-                 [d['block_retrieval_time'] for d in rust_data],
-                 marker='x', label='Rust', linewidth=2)
+        x = [d['event_count'] for d in rust_data]
+        y = [d['block_retrieval_time'] for d in rust_data]
+        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
+        ax.fill_between(x, y, alpha=0.15, color='darkorange')
     ax.set_title('Block Retrieval Time Comparison')
     ax.set_xlabel('Number of Events')
     ax.set_ylabel('Time (s)')
