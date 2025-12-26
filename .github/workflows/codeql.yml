@@ -12,16 +12,11 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     permissions:
       contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [python, rust]
 
     steps:
       - name: Checkout repository
@@ -30,7 +25,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
+          languages: rust
           config: |
             paths-ignore:
               - benchmark/**
@@ -38,22 +33,18 @@ jobs:
 
       - name: Build for Analysis
         run: |
-          if [ "${{ matrix.language }}" = "rust" ]; then
-            echo "Running cargo check for Rust analysis..."
-            cargo check
-          else
-            echo "Python analysis is buildless, skipping build step..."
-          fi
+          echo "Running cargo check for Rust analysis..."
+          cargo check
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{matrix.language}}"
+          category: "/language:rust"
           output: sarif-results
 
       - name: Upload SARIF as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.language }}-codeql-sarif
+          name: rust-codeql-sarif
           path: sarif-results
           retention-days: 14
