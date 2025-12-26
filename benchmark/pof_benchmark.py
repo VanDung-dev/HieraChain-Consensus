@@ -36,6 +36,7 @@ except ImportError as e:
 # 2. Rust Implementation
 RUST_AVAILABLE = False
 RsBlock = None
+RsPoF = None
 rs_validate_poa = None
 rs_calculate_block_hash = None
 
@@ -45,6 +46,11 @@ try:
     if hasattr(hierachain_consensus, "Block"):
         RsBlock = hierachain_consensus.Block
         RUST_AVAILABLE = True
+    
+    # Check for ProofOfFederation class
+    if hasattr(hierachain_consensus, "ProofOfFederation"):
+        RsPoF = hierachain_consensus.ProofOfFederation
+        print("✓ Rust ProofOfFederation available")
     
     # Check for Validation function (reuse PoA validation for now)
     if hasattr(hierachain_consensus, "validate_poa_block"):
@@ -101,55 +107,61 @@ class PoFImplementation:
 
 # --- Benchmark Functions ---
 
-def benchmark_leader_rotation(impl: PoFImplementation, validator_count: int, iterations: int) -> Dict[str, Any]:
+def benchmark_leader_rotation(
+    impl: PoFImplementation,
+    validator_count: int,
+    iterations: int
+) -> Dict[str, Any]:
     """
     Benchmarks leader rotation calculation performance.
     """
-    print(f"\n* Benchmarking {impl.name} Leader Rotation (Validators: {validator_count}, Iterations: {iterations})...")
+    print(f"\n* Benchmarking {impl.name} Leader Rotation "
+          f"(Validators: {validator_count}, Iterations: {iterations})...")
     
-    if impl.name == "Python" and impl.pof_validator:
-        pof_engine = impl.pof_validator
-        
-        # Add validators
-        for i in range(validator_count):
-            pof_engine.add_validator(f"validator_{i}")
-        
-        # Benchmark get_current_leader
-        start_time = time.perf_counter()
-        for block_idx in range(iterations):
-            _ = pof_engine.get_current_leader(block_idx)
-        rotation_time = time.perf_counter() - start_time
-        
-        # Benchmark validate_block_proposer
-        start_time = time.perf_counter()
-        for block_idx in range(iterations):
-            leader = pof_engine.get_current_leader(block_idx)
-            _ = pof_engine.validate_block_proposer(block_idx, leader)
-        proposer_validation_time = time.perf_counter() - start_time
-        
-        result = {
+    pof_engine = impl.pof_validator
+    if pof_engine is None:
+        return {
             "implementation": impl.name,
             "validator_count": validator_count,
             "iterations": iterations,
-            "total_rotation_time": rotation_time,
-            "avg_rotation_time_us": (rotation_time / iterations) * 1_000_000,  # microseconds
-            "total_proposer_validation_time": proposer_validation_time,
-            "avg_proposer_validation_time_us": (proposer_validation_time / iterations) * 1_000_000,
-            "rotations_per_sec": iterations / rotation_time if rotation_time > 0 else 0
+            "note": "PoF validator not available"
         }
-        
-        print(f"  ✅ Leader Rotation: {rotation_time:.4f}s ({result['rotations_per_sec']:.2f} ops/sec)")
-        print(f"  ✅ Proposer Validation: {proposer_validation_time:.4f}s")
-        
-        return result
     
-    # Rust implementation placeholder (when Rust PoF is exposed)
-    return {
+    # Add validators
+    for i in range(validator_count):
+        pof_engine.add_validator(f"validator_{i}")
+    
+    # Benchmark get_current_leader
+    start_time = time.perf_counter()
+    for block_idx in range(iterations):
+        _ = pof_engine.get_current_leader(block_idx)
+    rotation_time = time.perf_counter() - start_time
+    
+    # Benchmark validate_block_proposer
+    start_time = time.perf_counter()
+    for block_idx in range(iterations):
+        leader = pof_engine.get_current_leader(block_idx)
+        _ = pof_engine.validate_block_proposer(block_idx, leader)
+    proposer_validation_time = time.perf_counter() - start_time
+    
+    result = {
         "implementation": impl.name,
         "validator_count": validator_count,
         "iterations": iterations,
-        "note": "Rust PoF not exposed to Python yet"
+        "total_rotation_time": rotation_time,
+        "avg_rotation_time_us": (rotation_time / iterations) * 1_000_000,
+        "total_proposer_validation_time": proposer_validation_time,
+        "avg_proposer_validation_time_us": (
+            (proposer_validation_time / iterations) * 1_000_000
+        ),
+        "rotations_per_sec": iterations / rotation_time if rotation_time > 0 else 0
     }
+    
+    print(f"  ✅ Leader Rotation: {rotation_time:.4f}s "
+          f"({result['rotations_per_sec']:.2f} ops/sec)")
+    print(f"  ✅ Proposer Validation: {proposer_validation_time:.4f}s")
+    
+    return result
 
 
 def benchmark_pof_run(impl: PoFImplementation, event_count: int, iterations: int) -> Dict[str, Any]:
@@ -308,11 +320,18 @@ def run_comprehensive_benchmark():
     
     if PYTHON_AVAILABLE and PyBlock:
         py_pof_instance = PyPoF() if PyPoF else None
-        implementations.append(PoFImplementation("Python", PyBlock, py_pof_instance))
+        implementations.append(
+            PoFImplementation("Python", PyBlock, py_pof_instance)
+        )
         
     if RUST_AVAILABLE and RsBlock:
-        # For Rust, we pass the function reference for validation if available
-        implementations.append(PoFImplementation("Rust", RsBlock, rs_validate_poa, rs_calculate_block_hash))
+        # For Rust, use RsPoF if available, otherwise None
+        rs_pof_instance = RsPoF() if RsPoF else None
+        implementations.append(
+            PoFImplementation(
+                "Rust", RsBlock, rs_pof_instance, rs_calculate_block_hash
+            )
+        )
         
     if not implementations:
         print("❌ No implementations available to benchmark.")
@@ -341,12 +360,20 @@ def run_comprehensive_benchmark():
         iterations = config["iter"]
         
         for impl in implementations:
-            if impl.name == "Python" and impl.pof_validator:
+            if impl.pof_validator is not None:
                 # Reset validators for each run
-                impl.pof_validator.validators = []
-                impl.pof_validator.validator_metadata = {}
-                res = benchmark_leader_rotation(impl, validator_count, iterations)
-                rotation_results.append(res)
+                if impl.name == "Python":
+                    impl.pof_validator.validators = []
+                    impl.pof_validator.validator_metadata = {}
+                else:
+                    # For Rust, create a fresh instance
+                    impl.pof_validator = RsPoF() if RsPoF else None
+                
+                if impl.pof_validator:
+                    res = benchmark_leader_rotation(
+                        impl, validator_count, iterations
+                    )
+                    rotation_results.append(res)
             
     # Save Results
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -507,11 +534,45 @@ def analyze_benchmark(file_path):
 
     # 4. Leader Rotation Performance
     ax = axes[1, 1]
-    py_rotation = [d for d in rotation_data if d.get('implementation') == 'Python' and 'rotations_per_sec' in d]
-    if py_rotation:
-        ax.bar([str(d['validator_count']) for d in py_rotation],
-               [d['rotations_per_sec'] for d in py_rotation],
-               color='steelblue', alpha=0.8, label='Python')
+    py_rotation = [
+        d for d in rotation_data
+        if d.get('implementation') == 'Python' and 'rotations_per_sec' in d
+    ]
+    rs_rotation = [
+        d for d in rotation_data
+        if d.get('implementation') == 'Rust' and 'rotations_per_sec' in d
+    ]
+    
+    if py_rotation or rs_rotation:
+        import numpy as np
+        validator_counts = sorted(set(
+            [d['validator_count'] for d in py_rotation] +
+            [d['validator_count'] for d in rs_rotation]
+        ))
+        x = np.arange(len(validator_counts))
+        width = 0.35
+        
+        py_values = []
+        rs_values = []
+        for vc in validator_counts:
+            py_val = next(
+                (d['rotations_per_sec'] for d in py_rotation
+                 if d['validator_count'] == vc), 0
+            )
+            rs_val = next(
+                (d['rotations_per_sec'] for d in rs_rotation
+                 if d['validator_count'] == vc), 0
+            )
+            py_values.append(py_val)
+            rs_values.append(rs_val)
+        
+        ax.bar(x - width/2, py_values, width,
+               label='Python', color='steelblue', alpha=0.8)
+        ax.bar(x + width/2, rs_values, width,
+               label='Rust', color='darkorange', alpha=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(vc) for vc in validator_counts])
+    
     ax.set_title('Leader Rotation Performance')
     ax.set_xlabel('Number of Validators')
     ax.set_ylabel('Rotations/sec')
