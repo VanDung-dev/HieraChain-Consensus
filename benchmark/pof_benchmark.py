@@ -12,7 +12,7 @@ import sys
 import os
 import statistics
 import matplotlib.pyplot as plt
-from typing import Any, Optional, Callable
+from typing import Any, Callable
 from datetime import datetime
 
 # Add the project root to the Python path
@@ -98,7 +98,7 @@ def create_test_validators(count: int) -> list[str]:
 
 class PoFImplementation:
     """Wrapper to standardize access to Python and Rust implementations."""
-    def __init__(self, name: str, block_cls: Any, pof_validator: Any, hash_fn: Optional[Callable] = None):
+    def __init__(self, name: str, block_cls: Any, pof_validator: Any, hash_fn: Callable | None = None):
         self.name = name
         self.Block = block_cls
         self.pof_validator = pof_validator  # Instance of PoF consensus
