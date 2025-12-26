@@ -12,12 +12,14 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     permissions:
       contents: read
       security-events: write
 
     strategy:
+      fail-fast: false
       matrix:
         language: [python, rust]
 
@@ -34,8 +36,14 @@ jobs:
               - benchmark/**
               - .github/**
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+      - name: Build for Analysis
+        run: |
+          if [ "${{ matrix.language }}" = "rust" ]; then
+            echo "Running cargo check for Rust analysis..."
+            cargo check
+          else
+            echo "Python analysis is buildless, skipping build step..."
+          fi
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
