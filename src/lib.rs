@@ -22,6 +22,7 @@ pub mod hierarchical;
 pub mod security;
 
 use crate::consensus::{OrderingNode, OrderingService, OrderingStatus, PendingEvent};
+use crate::core::consensus::base_consensus::BaseConsensusTrait;
 
 /// Convert Python object to serde_json::Value
 fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
@@ -413,6 +414,119 @@ fn calculate_merkle_root(events: &Bound<PyList>) -> PyResult<String> {
     Ok(tree.get_root())
 }
 
+// ==================== PyO3 Wrapper for ProofOfFederation ====================
+
+use crate::core::consensus::proof_of_federation::ProofOfFederation;
+
+/// PyO3 wrapper for Proof of Federation consensus mechanism.
+/// Provides Python access to the Rust PoF implementation.
+#[pyclass(name = "ProofOfFederation")]
+pub struct PyProofOfFederation {
+    inner: ProofOfFederation,
+}
+
+#[pymethods]
+impl PyProofOfFederation {
+    /// Create a new Proof of Federation consensus instance.
+    #[new]
+    #[pyo3(signature = (name=None))]
+    fn new(name: Option<&str>) -> Self {
+        PyProofOfFederation {
+            inner: ProofOfFederation::new(name.unwrap_or("ProofOfFederation")),
+        }
+    }
+
+    /// Get the consensus name.
+    #[getter]
+    fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    /// Get the list of validators.
+    #[getter]
+    fn validators(&self) -> Vec<String> {
+        self.inner.validators.clone()
+    }
+
+    /// Get the number of active validators.
+    fn get_validator_count(&self) -> usize {
+        self.inner.get_validator_count()
+    }
+
+    /// Add a validator to the federation.
+    /// Returns True if added successfully, False if already exists.
+    #[pyo3(signature = (validator_id, metadata=None))]
+    fn add_validator(
+        &mut self,
+        validator_id: String,
+        metadata: Option<&Bound<PyDict>>,
+    ) -> PyResult<bool> {
+        let meta = if let Some(dict) = metadata {
+            Some(dict_to_map(dict)?)
+        } else {
+            None
+        };
+        Ok(self.inner.add_validator(validator_id, meta))
+    }
+
+    /// Remove a validator from the federation.
+    /// Returns True if removed successfully, False if not found.
+    fn remove_validator(&mut self, validator_id: &str) -> bool {
+        self.inner.remove_validator(validator_id)
+    }
+
+    /// Check if an ID is an active validator.
+    fn is_authority(&self, authority_id: &str) -> bool {
+        self.inner.is_authority(authority_id)
+    }
+
+    /// Determine the expected leader for a specific block index.
+    /// Returns the validator ID or None if no validators.
+    fn get_current_leader(&self, block_index: u64) -> Option<String> {
+        self.inner.get_current_leader(block_index).cloned()
+    }
+
+    /// Validate if the proposer is the correct leader for this block height.
+    fn validate_block_proposer(&self, block_index: u64, proposer_id: &str) -> bool {
+        self.inner.validate_block_proposer(block_index, proposer_id)
+    }
+
+    /// Check if a block can be created given the current state.
+    #[pyo3(signature = (authority_id=None))]
+    fn can_create_block(&self, authority_id: Option<&str>) -> bool {
+        self.inner.can_create_block(authority_id)
+    }
+
+    /// Estimate the time required to create a new block.
+    fn estimate_block_time(&self) -> f64 {
+        self.inner.estimate_block_time()
+    }
+
+    /// Get consensus information as a dictionary.
+    fn get_consensus_info(&self, py: Python) -> PyResult<Py<PyAny>> {
+        use crate::core::consensus::base_consensus::BaseConsensusTrait;
+        let info = self.inner.get_consensus_info();
+        let dict = PyDict::new(py);
+        for (key, value) in info {
+            let py_value = json_to_py(py, &value)?;
+            dict.set_item(key, py_value)?;
+        }
+        Ok(dict.into())
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "ProofOfFederation(name='{}', validators={})",
+            self.inner.name,
+            self.inner.validators.len()
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
 /// Python module
 #[pymodule]
 fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
@@ -430,6 +544,7 @@ fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyOrderingNode>()?;
     m.add_class::<PyOrderingService>()?;
     m.add_class::<crate::core::block::Block>()?;
+    m.add_class::<PyProofOfFederation>()?;
 
     Ok(())
 }
