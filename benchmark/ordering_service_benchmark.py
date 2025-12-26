@@ -11,7 +11,7 @@ import sys
 import statistics
 import os
 import matplotlib.pyplot as plt
-from typing import List, Dict, Any
+from typing import Any
 from datetime import datetime
 
 # Add the project root to the Python path
@@ -39,7 +39,7 @@ except ImportError:
 
 # --- Helper Functions ---
 
-def create_test_events(count: int) -> List[Dict[str, Any]]:
+def create_test_events(count: int) -> list[dict[str, Any]]:
     """Creates a list of test events for benchmarking."""
     return [{
         "entity_id": f"entity_{i % 100}",
@@ -94,7 +94,7 @@ def ensure_service_active(service: Any, timeout: float = 10.0) -> bool:
 
 # --- Main Benchmark Logic ---
 
-def benchmark_implementation(service: Any, event_count: int, block_size: int) -> Dict[str, Any]:
+def benchmark_implementation(service: Any, event_count: int, block_size: int) -> dict[str, Any]:
     """
     Benchmarks a given service instance with a specified number of events.
     """

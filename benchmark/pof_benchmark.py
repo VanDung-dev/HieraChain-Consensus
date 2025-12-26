@@ -12,7 +12,7 @@ import sys
 import os
 import statistics
 import matplotlib.pyplot as plt
-from typing import List, Dict, Any, Optional, Callable
+from typing import Any, Optional, Callable
 from datetime import datetime
 
 # Add the project root to the Python path
@@ -74,7 +74,7 @@ except ImportError as e:
 
 # --- Helper Functions ---
 
-def create_test_events(count: int) -> List[Dict[str, Any]]:
+def create_test_events(count: int) -> list[dict[str, Any]]:
     """Creates a list of dummy events for benchmarking."""
     events = []
     for i in range(count):
@@ -91,7 +91,7 @@ def create_test_events(count: int) -> List[Dict[str, Any]]:
     return events
 
 
-def create_test_validators(count: int) -> List[str]:
+def create_test_validators(count: int) -> list[str]:
     """Creates a list of test validator IDs."""
     return [f"validator_{chr(65 + i)}" for i in range(count)]
 
@@ -111,7 +111,7 @@ def benchmark_leader_rotation(
     impl: PoFImplementation,
     validator_count: int,
     iterations: int
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Benchmarks leader rotation calculation performance.
     """
@@ -164,7 +164,7 @@ def benchmark_leader_rotation(
     return result
 
 
-def benchmark_pof_run(impl: PoFImplementation, event_count: int, iterations: int) -> Dict[str, Any]:
+def benchmark_pof_run(impl: PoFImplementation, event_count: int, iterations: int) -> dict[str, Any]:
     """
     Runs one configuration of the benchmark (Block Creation, Hashing, Validation).
     """

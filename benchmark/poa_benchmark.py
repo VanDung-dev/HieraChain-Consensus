@@ -11,7 +11,7 @@ import json
 import sys
 import os
 import matplotlib.pyplot as plt
-from typing import List, Dict, Any, Optional, Callable
+from typing import Any, Optional, Callable
 from datetime import datetime
 
 # Add the project root to the Python path
@@ -64,7 +64,7 @@ except ImportError as e:
 
 # --- Helper Functions ---
 
-def create_test_events(count: int) -> List[Dict[str, Any]]:
+def create_test_events(count: int) -> list[dict[str, Any]]:
     """Creates a list of dummy events for benchmarking."""
     events = []
     for i in range(count):
@@ -89,7 +89,7 @@ class PoAImplementation:
 
 # --- Main Benchmark Logic ---
 
-def benchmark_poa_run(impl: PoAImplementation, event_count: int, iterations: int) -> Dict[str, Any]:
+def benchmark_poa_run(impl: PoAImplementation, event_count: int, iterations: int) -> dict[str, Any]:
     """
     Runs one configuration of the benchmark (Block Creation, Hashing, Validation).
     """
