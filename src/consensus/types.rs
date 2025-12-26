@@ -1,3 +1,10 @@
+//! The main consensus types used by the blockchain component.
+//!
+//! This module defines common data structures for ordering nodes, pending events,
+//! and status enums used throughout the ordering/consensus subsystem.
+//! It provides small helpers (like `current_timestamp`) and lightweight
+//! serialization support via `serde` for interoperability (JSON).
+
 use arrow::record_batch::RecordBatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

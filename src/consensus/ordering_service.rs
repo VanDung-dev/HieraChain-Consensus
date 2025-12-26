@@ -1,3 +1,9 @@
+//! Independent Ordering Service for HieraChain Framework.
+//!
+//! This module implements a decoupled event ordering service that significantly improves
+//! scalability and reduces communication bandwidth. The ordering service separates event
+//! ordering from consensus validation, enabling enterprise-scale event volumes.
+
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
