@@ -13,7 +13,7 @@ use crate::consensus::types::{
 };
 use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
-use crate::security::security_utils::verify_signature;
+use crate::security::security_utils::verify_signature_bytes;
 
 /// Event certification and validation
 pub struct EventCertifier {
@@ -86,7 +86,7 @@ impl EventCertifier {
 
                     // Convert hex to bytes
                     if let (Ok(sig_bytes), Ok(pk_bytes)) = (hex::decode(sig), hex::decode(sender)) {
-                        match verify_signature(&pk_bytes, msg_str.as_bytes(), &sig_bytes) {
+                        match verify_signature_bytes(&pk_bytes, msg_str.as_bytes(), &sig_bytes) {
                             Ok(true) => {} // Valid
                             _ => {
                                 valid = false;
