@@ -15,7 +15,7 @@ from typing import Any
 from datetime import datetime
 
 # Add the project root to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ''))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # --- Implementation Imports ---
 try:
@@ -30,9 +30,15 @@ except ImportError as e:
     print(f"⚠ Warning: Python implementation not available: {e}")
 
 try:
-    from hierachain_consensus import PyOrderingService as RustOrderingService, PyOrderingNode as RustOrderingNode
-    RUST_AVAILABLE = True
-    print("✓ Rust implementation available")
+    import hierachain_consensus
+    if hasattr(hierachain_consensus, "PyOrderingService"):
+        RustOrderingService = hierachain_consensus.PyOrderingService
+        RustOrderingNode = hierachain_consensus.PyOrderingNode
+        RUST_AVAILABLE = True
+        print("✓ Rust implementation available")
+    else:
+        RUST_AVAILABLE = False
+        print("⚠ Warning: Rust module loaded but PyOrderingService not found.")
 except ImportError:
     RUST_AVAILABLE = False
     print("⚠ Warning: Rust implementation not available. Only Python benchmark will run.")
@@ -233,8 +239,7 @@ def run_comprehensive_benchmark():
     # --- Save and Print Summary ---
     # Determine project root relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, ''))
-    output_dir = os.path.join(project_root, 'output')
+    output_dir = os.path.join(script_dir, 'output')
     
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
@@ -270,53 +275,67 @@ def run_comprehensive_benchmark():
 
 
 def analyze_benchmark(file_path):
-    # Read data from a JSON file
-    with open(file_path) as f:
-        data = json.load(f)
+    """
+    Reads the JSON result and generates plots.
+    """
+    try:
+        with open(file_path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Could not find result file: {file_path}")
+        return
 
     # Split data by language
-    python_data = [d for d in data if d['implementation'] == 'Python']
-    rust_data = [d for d in data if d['implementation'] == 'Rust']
+    python_data = [d for d in data if d.get('implementation') == 'Python' and 'error' not in d]
+    rust_data = [d for d in data if d.get('implementation') == 'Rust' and 'error' not in d]
 
-    # Draw a performance comparison chart
-    plt.figure(figsize=(10, 6))
+    if not python_data and not rust_data:
+        print("No valid data to plot.")
+        return
 
-    # events_per_second chart
-    plt.subplot(2, 1, 1)
-    plt.plot([d['event_count'] for d in python_data],
-             [d['events_per_second_submission'] for d in python_data],
-             label='Python')
-    plt.plot([d['event_count'] for d in rust_data],
-             [d['events_per_second_submission'] for d in rust_data],
-             label='Rust')
-    plt.title('Python vs Rust Performance Comparison')
-    plt.xlabel('Number of events')
-    plt.ylabel('Events/sec')
-    plt.legend()
-    plt.grid()
+    # Create figure with subplots
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+    fig.suptitle('Ordering Service Benchmark Results', fontsize=14, fontweight='bold')
 
-    # Block retrieval time chart
-    plt.subplot(2, 1, 2)
-    plt.plot([d['event_count'] for d in python_data],
-             [d['block_retrieval_time'] for d in python_data],
-             label='Python')
-    plt.plot([d['event_count'] for d in rust_data],
-             [d['block_retrieval_time'] for d in rust_data],
-             label='Rust')
-    plt.xlabel('Number of Events')
-    plt.ylabel('Block retrieval time(s)')
-    plt.legend()
-    plt.grid()
+    # 1. events_per_second chart
+    ax = axes[0]
+    if python_data:
+        ax.plot([d['event_count'] for d in python_data],
+                 [d['events_per_second_submission'] for d in python_data],
+                 marker='o', label='Python', linewidth=2)
+    if rust_data:
+        ax.plot([d['event_count'] for d in rust_data],
+                 [d['events_per_second_submission'] for d in rust_data],
+                 marker='x', label='Rust', linewidth=2)
+    ax.set_title('Submission Throughput (Events/sec)')
+    ax.set_xlabel('Number of Events')
+    ax.set_ylabel('Events/sec')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # 2. Block retrieval time chart
+    ax = axes[1]
+    if python_data:
+        ax.plot([d['event_count'] for d in python_data],
+                 [d['block_retrieval_time'] for d in python_data],
+                 marker='o', label='Python', linewidth=2)
+    if rust_data:
+        ax.plot([d['event_count'] for d in rust_data],
+                 [d['block_retrieval_time'] for d in rust_data],
+                 marker='x', label='Rust', linewidth=2)
+    ax.set_title('Block Retrieval Time Comparison')
+    ax.set_xlabel('Number of Events')
+    ax.set_ylabel('Time (s)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
-    # Save chart to same directory as input file if possible, or relative output dir
+    # Save chart
     output_dir = os.path.dirname(file_path)
-    if not output_dir:
-        output_dir = 'consensus'
     chart_path = os.path.join(output_dir, 'OrderingService_benchmark.png')
-    plt.savefig(chart_path)
-    print(f"Chart saved to '{chart_path}'")
+    plt.savefig(chart_path, dpi=150)
+    print(f"📊 Chart saved to '{chart_path}'")
 
 if __name__ == "__main__":
     run_comprehensive_benchmark()
@@ -324,8 +343,8 @@ if __name__ == "__main__":
 
     # Determine project root relative to this script
     time.sleep(1)
-    project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ''))
-    results_path = os.path.join(project_root, 'output', 'OrderingService_benchmark.json')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    results_path = os.path.join(script_dir, 'output', 'OrderingService_benchmark.json')
 
     if os.path.exists(results_path):
         print(f"DEBUG: Reading results from: {results_path}")
