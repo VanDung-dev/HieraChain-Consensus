@@ -527,6 +527,222 @@ impl PyProofOfFederation {
     }
 }
 
+// ==================== PyO3 Wrapper for KeyPair ====================
+
+use crate::security::security_utils::{verify_signature as rs_verify_signature, KeyPair};
+
+/// PyO3 wrapper for Ed25519 KeyPair.
+/// Provides Python access to cryptographic signing and verification.
+#[pyclass(name = "KeyPair")]
+#[derive(Clone)]
+pub struct PyKeyPair {
+    inner: KeyPair,
+}
+
+#[pymethods]
+impl PyKeyPair {
+    /// Generate a new random Ed25519 key pair.
+    #[staticmethod]
+    fn generate() -> Self {
+        PyKeyPair {
+            inner: KeyPair::generate(),
+        }
+    }
+
+    /// Create a key pair from a hex-encoded private key.
+    #[staticmethod]
+    fn from_private_key(private_key_hex: &str) -> PyResult<Self> {
+        KeyPair::from_private_key(private_key_hex)
+            .map(|kp| PyKeyPair { inner: kp })
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Get the public key as a hex string.
+    #[getter]
+    fn public_key(&self) -> String {
+        self.inner.public_key()
+    }
+
+    /// Get the private key as a hex string.
+    /// Warning: This exposes sensitive data!
+    #[getter]
+    fn private_key(&self) -> String {
+        self.inner.private_key()
+    }
+
+    /// Sign a message and return the signature as a hex string.
+    fn sign(&self, message: &[u8]) -> PyResult<String> {
+        self.inner
+            .sign(message)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    fn __str__(&self) -> String {
+        format!("KeyPair(public_key='{}')", self.inner.public_key())
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+/// Verify an Ed25519 signature.
+#[pyfunction]
+fn verify_signature(public_key_hex: &str, message: &[u8], signature_hex: &str) -> bool {
+    rs_verify_signature(public_key_hex, message, signature_hex)
+}
+
+// ==================== PyO3 Wrapper for BFTConsensus ====================
+
+use crate::hierarchical::consensus::bft_consensus::BFTConsensus;
+use std::collections::HashMap as StdHashMap;
+
+/// PyO3 wrapper for BFT Consensus mechanism.
+/// Provides Python access to the Rust BFT implementation.
+#[pyclass(name = "BFTConsensus")]
+pub struct PyBFTConsensus {
+    inner: Arc<tokio::sync::Mutex<BFTConsensus>>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+#[pymethods]
+impl PyBFTConsensus {
+    /// Create a new BFT consensus instance.
+    ///
+    /// Args:
+    ///     node_id: Current node ID
+    ///     all_nodes: List of all validator node IDs
+    ///     f: Maximum Byzantine faults to tolerate (n >= 3f + 1)
+    ///     keypair: PyKeyPair for signing
+    ///     node_public_keys: Dict of node_id -> public_key_hex
+    #[new]
+    fn new(
+        node_id: String,
+        all_nodes: Vec<String>,
+        f: usize,
+        keypair: &PyKeyPair,
+        node_public_keys: &Bound<PyDict>,
+    ) -> PyResult<Self> {
+        // Convert PyDict to HashMap
+        let mut public_keys = StdHashMap::new();
+        for (key, value) in node_public_keys.iter() {
+            let key_str: &str = key.cast::<PyString>()?.to_str()?;
+            let value_str: &str = value.cast::<PyString>()?.to_str()?;
+            public_keys.insert(key_str.to_string(), value_str.to_string());
+        }
+
+        // Create runtime for async operations
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        // Create the inner Rust KeyPair from the Python wrapper
+        let rust_keypair = KeyPair::from_private_key(&keypair.inner.private_key())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        // Create BFTConsensus
+        let consensus = BFTConsensus::new(node_id, all_nodes, f, rust_keypair, public_keys)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        Ok(PyBFTConsensus {
+            inner: Arc::new(tokio::sync::Mutex::new(consensus)),
+            runtime: Arc::new(runtime),
+        })
+    }
+
+    /// Get the node ID.
+    fn node_id(&self) -> String {
+        let inner = self.runtime.block_on(self.inner.lock());
+        inner.node_id().to_string()
+    }
+
+    /// Get the fault tolerance value (f).
+    fn fault_tolerance(&self) -> usize {
+        let inner = self.runtime.block_on(self.inner.lock());
+        inner.fault_tolerance()
+    }
+
+    /// Get total node count.
+    fn node_count(&self) -> usize {
+        let inner = self.runtime.block_on(self.inner.lock());
+        inner.node_count()
+    }
+
+    /// Get the current primary node ID.
+    fn primary(&self) -> String {
+        let inner = self.runtime.block_on(self.inner.lock());
+        self.runtime.block_on(inner.primary())
+    }
+
+    /// Check if this node is the primary.
+    fn is_primary(&self) -> bool {
+        let inner = self.runtime.block_on(self.inner.lock());
+        self.runtime.block_on(inner.is_primary())
+    }
+
+    /// Submit a client request to consensus.
+    fn request(&self, operation: &Bound<PyDict>) -> PyResult<bool> {
+        let mut op_map = StdHashMap::new();
+        for (key, value) in operation.iter() {
+            let key_str: &str = key.cast::<PyString>()?.to_str()?;
+            let value_json = py_to_json(&value)?;
+            op_map.insert(key_str.to_string(), value_json);
+        }
+
+        let inner = self.runtime.block_on(self.inner.lock());
+        self.runtime
+            .block_on(inner.request(op_map))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Handle an incoming consensus message.
+    fn handle_message(&self, message: &Bound<PyDict>) -> PyResult<bool> {
+        let mut msg_map = StdHashMap::new();
+        for (key, value) in message.iter() {
+            let key_str: &str = key.cast::<PyString>()?.to_str()?;
+            let value_json = py_to_json(&value)?;
+            msg_map.insert(key_str.to_string(), value_json);
+        }
+
+        let inner = self.runtime.block_on(self.inner.lock());
+        self.runtime
+            .block_on(inner.handle_message(msg_map))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Get current consensus status.
+    fn get_consensus_status(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let inner = self.runtime.block_on(self.inner.lock());
+        let status = self.runtime.block_on(inner.get_consensus_status());
+
+        let dict = PyDict::new(py);
+        for (key, value) in status {
+            let py_value = json_to_py(py, &value)?;
+            dict.set_item(key, py_value)?;
+        }
+        Ok(dict.into())
+    }
+
+    /// Shutdown the consensus mechanism.
+    fn shutdown(&self) {
+        let inner = self.runtime.block_on(self.inner.lock());
+        self.runtime.block_on(inner.shutdown());
+    }
+
+    fn __str__(&self) -> String {
+        let inner = self.runtime.block_on(self.inner.lock());
+        format!(
+            "BFTConsensus(node_id='{}', f={}, n={})",
+            inner.node_id(),
+            inner.fault_tolerance(),
+            inner.node_count()
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
 /// Python module
 #[pymodule]
 fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
@@ -545,6 +761,13 @@ fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyOrderingService>()?;
     m.add_class::<crate::core::block::Block>()?;
     m.add_class::<PyProofOfFederation>()?;
+
+    // Add BFT consensus classes
+    m.add_class::<PyKeyPair>()?;
+    m.add_class::<PyBFTConsensus>()?;
+
+    // Add signature verification function
+    m.add_function(wrap_pyfunction!(verify_signature, m)?)?;
 
     Ok(())
 }
