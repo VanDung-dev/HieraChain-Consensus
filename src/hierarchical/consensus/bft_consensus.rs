@@ -45,6 +45,7 @@ pub enum ConsensusError {
 }
 
 /// Inner state of BFT consensus (protected by mutex)
+#[allow(dead_code)]
 struct BFTConsensusInner {
     /// Current view number
     view: u64,
@@ -115,6 +116,7 @@ impl BFTConsensusInner {
 }
 
 /// Byzantine Fault Tolerance consensus implementation
+#[allow(dead_code)]
 pub struct BFTConsensus {
     /// Node ID
     node_id: String,
