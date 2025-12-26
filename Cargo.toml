@@ -2,6 +2,11 @@
 name = "hierachain-consensus"
 version = "0.0.0-dev3"
 edition = "2021"
+authors = ["Nguyễn Lê Văn Dũng <dungnguyen2661@gmail.com>"]
+description = "HieraChain Consensus is a Rust-based blockchain consensus library."
+readme = "README.md"
+repository = "https://github.com/VanDung-dev/HieraChain-Consensus"
+license = "Apache-2.0 OR MIT"
 
 [lib]
 name = "hierachain_consensus"
