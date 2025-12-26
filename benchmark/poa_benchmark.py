@@ -319,6 +319,7 @@ def analyze_benchmark(file_path):
     # We will plot 3 subplots: Creation Time, Hashing Time, Validation Time (all avg ms)
     
     fig, axes = plt.subplots(3, 1, figsize=(10, 12))
+    fig.suptitle('Proof of Authority (PoA) Benchmark Results', fontsize=14, fontweight='bold')
     
     metrics = [
         ("avg_creation_time_ms", "Block Creation Time (ms)"),
