@@ -13,13 +13,18 @@ This script measures and compares the performance of:
 import time
 import json
 import sys
-import statistics
 import os
 from typing import Any
 from datetime import datetime
+import logging
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+# --- Logging Configuration ---
+# Suppress consensus validation warnings and errors during benchmark
+logging.getLogger('hierachain.hierarchical.sub_chain').setLevel(logging.CRITICAL)
+logging.getLogger('hierachain.consensus.ordering_service').setLevel(logging.CRITICAL)
 
 # --- Implementation Imports ---
 PYTHON_AVAILABLE = False
@@ -29,9 +34,8 @@ try:
     from hierachain.hierarchical.sub_chain import SubChain as _PythonSubChain
     PythonSubChain = _PythonSubChain
     PYTHON_AVAILABLE = True
-    print("✓ Python SubChain implementation available")
-except ImportError as e:
-    print(f"⚠ Warning: Python SubChain implementation not available: {e}")
+except ImportError:
+    pass
 
 RUST_AVAILABLE = False
 RustSubChain = None
@@ -41,11 +45,8 @@ try:
     if hasattr(hierachain_consensus, "SubChain"):
         RustSubChain = hierachain_consensus.SubChain
         RUST_AVAILABLE = True
-        print("✓ Rust SubChain implementation available")
-    else:
-        print("⚠ Warning: Rust module loaded but SubChain not found.")
-except ImportError as e:
-    print(f"⚠ Warning: Rust implementation not available: {e}")
+except ImportError:
+    pass
 
 
 def create_subchain(subchain_class: Any, name: str, domain_type: str, impl_name: str) -> Any:
@@ -59,9 +60,8 @@ def create_subchain(subchain_class: Any, name: str, domain_type: str, impl_name:
 
 def benchmark_creation(subchain_class: Any, count: int, impl_name: str) -> dict[str, Any]:
     """Benchmark SubChain creation."""
-    times: list[float] = []
-    chains: list[Any] = []
-    
+    times = []
+    chains = []
     for i in range(count):
         start = time.perf_counter()
         sc = create_subchain(subchain_class, f"sc_{i}", "logistics", impl_name)
@@ -77,12 +77,12 @@ def benchmark_creation(subchain_class: Any, count: int, impl_name: str) -> dict[
         except Exception:
             pass
     
+    total_time = sum(times)
     return {
         "operation": "create_subchain",
         "count": count,
-        "total_time": sum(times),
-        "avg_time": statistics.mean(times) if times else 0,
-        "ops_per_second": count / sum(times) if sum(times) > 0 else 0
+        "total_time": total_time,
+        "ops_per_second": count / total_time if total_time > 0 else 0
     }
 
 
@@ -96,7 +96,6 @@ def benchmark_add_event(subchain: Any, count: int) -> dict[str, Any]:
             "data": {"index": i, "value": f"value_{i}"}
         })
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "add_event",
         "count": count,
@@ -111,7 +110,6 @@ def benchmark_start_operation(subchain: Any, count: int) -> dict[str, Any]:
     for i in range(count):
         subchain.start_operation(f"entity_{i % 50}", "processing", {"batch": i})
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "start_operation",
         "count": count,
@@ -126,7 +124,6 @@ def benchmark_complete_operation(subchain: Any, count: int) -> dict[str, Any]:
     for i in range(count):
         subchain.complete_operation(f"entity_{i % 50}", "processing", {"result": "success"})
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "complete_operation",
         "count": count,
@@ -142,7 +139,6 @@ def benchmark_update_status(subchain: Any, count: int) -> dict[str, Any]:
     for i in range(count):
         subchain.update_entity_status(f"entity_{i % 50}", statuses[i % len(statuses)])
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "update_entity_status",
         "count": count,
@@ -159,7 +155,6 @@ def benchmark_get_entity_history(subchain: Any, entity_count: int) -> dict[str, 
         history = subchain.get_entity_history(f"entity_{i}")
         total_events += len(history) if history else 0
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "get_entity_history",
         "count": entity_count,
@@ -175,7 +170,6 @@ def benchmark_get_statistics(subchain: Any, count: int) -> dict[str, Any]:
     for _ in range(count):
         subchain.get_domain_statistics()
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "get_domain_statistics",
         "count": count,
@@ -186,26 +180,21 @@ def benchmark_get_statistics(subchain: Any, count: int) -> dict[str, Any]:
 
 def benchmark_finalize_block(subchain: Any, count: int) -> dict[str, Any]:
     """Benchmark block finalization."""
-    times: list[float] = []
+    times = []
     successful = 0
-    
     for i in range(count):
-        # Add some events first for each finalization
         for j in range(5):
             subchain.add_event({
                 "entity_id": f"entity_{j}",
                 "event": "test_event",
                 "data": {"batch": i, "item": j}
             })
-        
-        # Try to finalize
         start = time.perf_counter()
         result = subchain.finalize_block()
         elapsed = time.perf_counter() - start
         times.append(elapsed)
         if result is not None:
             successful += 1
-    
     total_time = sum(times) if times else 1
     return {
         "operation": "finalize_block",
@@ -224,7 +213,6 @@ def benchmark_should_submit_proof(subchain: Any, count: int) -> dict[str, Any]:
         if subchain.should_submit_proof():
             true_count += 1
     elapsed = time.perf_counter() - start
-    
     return {
         "operation": "should_submit_proof",
         "count": count,
@@ -236,101 +224,50 @@ def benchmark_should_submit_proof(subchain: Any, count: int) -> dict[str, Any]:
 
 def run_single_benchmark(subchain_class: Any, impl_name: str, config: dict[str, Any]) -> dict[str, Any]:
     """Run all benchmarks for a single implementation."""
-    print(f"\n{'='*50}")
-    print(f"🔧 Benchmarking {impl_name}")
-    print(f"{'='*50}")
-    
-    results: dict[str, Any] = {
+    results = {
         "implementation": impl_name,
         "config": config,
         "benchmarks": []
     }
-    
     try:
-        # 1. Benchmark creation
-        print(f"\n📦 Testing SubChain creation ({config['creation_count']} chains)...")
-        result = benchmark_creation(subchain_class, config['creation_count'], impl_name)
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} creations/sec (avg: {result['avg_time']*1000:.2f}ms)")
+        results["benchmarks"].append(benchmark_creation(subchain_class, config['creation_count'], impl_name))
         
-        # Create fresh chain for remaining tests
-        subchain = create_subchain(subchain_class, "benchmark_chain", "logistics", impl_name)
-        if not subchain:
+        sc = create_subchain(subchain_class, "benchmark_chain", "logistics", impl_name)
+        if not sc:
             results["error"] = "Failed to create SubChain"
             return results
         
-        # 2. Benchmark add_event
-        print(f"\n📝 Testing add_event ({config['event_count']} events)...")
-        result = benchmark_add_event(subchain, config['event_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} events/sec")
+        results["benchmarks"].append(benchmark_add_event(sc, config['event_count']))
+        results["benchmarks"].append(benchmark_start_operation(sc, config['operation_count']))
+        results["benchmarks"].append(benchmark_complete_operation(sc, config['operation_count']))
+        results["benchmarks"].append(benchmark_update_status(sc, config['operation_count']))
+        results["benchmarks"].append(benchmark_get_entity_history(sc, config['entity_count']))
+        results["benchmarks"].append(benchmark_get_statistics(sc, config['stats_count']))
+        results["benchmarks"].append(benchmark_should_submit_proof(sc, config['stats_count']))
+        results["benchmarks"].append(benchmark_finalize_block(sc, config.get('finalize_count', 20)))
         
-        # 3. Benchmark start_operation
-        print(f"\n🚀 Testing start_operation ({config['operation_count']} ops)...")
-        result = benchmark_start_operation(subchain, config['operation_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} ops/sec")
-        
-        # 4. Benchmark complete_operation
-        print(f"\n✓ Testing complete_operation ({config['operation_count']} ops)...")
-        result = benchmark_complete_operation(subchain, config['operation_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} ops/sec")
-        
-        # 5. Benchmark update_entity_status
-        print(f"\n🔄 Testing update_entity_status ({config['operation_count']} ops)...")
-        result = benchmark_update_status(subchain, config['operation_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} ops/sec")
-        
-        # 6. Benchmark get_entity_history
-        print(f"\n📜 Testing get_entity_history ({config['entity_count']} entities)...")
-        result = benchmark_get_entity_history(subchain, config['entity_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} queries/sec")
-        
-        # 7. Benchmark get_domain_statistics
-        print(f"\n📊 Testing get_domain_statistics ({config['stats_count']} calls)...")
-        result = benchmark_get_statistics(subchain, config['stats_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} calls/sec")
-        
-        # 8. Benchmark should_submit_proof
-        print(f"\n🔍 Testing should_submit_proof ({config['stats_count']} checks)...")
-        result = benchmark_should_submit_proof(subchain, config['stats_count'])
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} checks/sec")
-        
-        # 9. Benchmark finalize_block
-        print(f"\n📦 Testing finalize_block ({config.get('finalize_count', 20)} blocks)...")
-        result = benchmark_finalize_block(subchain, config.get('finalize_count', 20))
-        results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} blocks/sec")
-        
-        # Cleanup
         try:
-            subchain.stop()
+            sc.stop()
         except Exception:
             pass
-        
     except Exception as e:
-        print(f"   ❌ Error: {e}")
         results["error"] = str(e)
-        import traceback
-        traceback.print_exc()
-    
     return results
 
 
-def run_comprehensive_benchmark() -> list[dict[str, Any]]:
+def run_comprehensive_benchmark():
     """Run comprehensive benchmark comparing Python and Rust implementations."""
-    print("🚀 Starting SubChain Benchmark")
-    print("=" * 60)
-    print(f"🕐 Started at: {datetime.now().isoformat()}")
-    print("=" * 60)
-    
-    # Benchmark configuration
-    config: dict[str, Any] = {
+    if PYTHON_AVAILABLE:
+        print("✓ Python SubChain implementation available")
+    else:
+        print("⚠ Warning: Python SubChain implementation not available")
+
+    if RUST_AVAILABLE:
+        print("✓ Rust SubChain implementation available")
+    else:
+        print("⚠ Warning: Rust module loaded but SubChain not found.")
+
+    config = {
         "creation_count": 10,
         "event_count": 500,
         "operation_count": 200,
@@ -340,26 +277,17 @@ def run_comprehensive_benchmark() -> list[dict[str, Any]]:
         "label": "Medium"
     }
     
-    all_results: list[dict[str, Any]] = []
-    
-    print(f"\n\n{'#'*60}")
-    print(f"# Configuration: {config['label']}")
-    print(f"# Events: {config['event_count']}, Operations: {config['operation_count']}")
-    print(f"{'#'*60}")
-    
-    # Python benchmark
+    all_results = []
     if PYTHON_AVAILABLE and PythonSubChain is not None:
         result = run_single_benchmark(PythonSubChain, "Python", config)
         result["config_label"] = config["label"]
         all_results.append(result)
     
-    # Rust benchmark
     if RUST_AVAILABLE and RustSubChain is not None:
         result = run_single_benchmark(RustSubChain, "Rust", config)
         result["config_label"] = config["label"]
         all_results.append(result)
     
-    # Save results
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(script_dir, 'output')
     os.makedirs(output_dir, exist_ok=True)
@@ -367,27 +295,37 @@ def run_comprehensive_benchmark() -> list[dict[str, Any]]:
     results_path = os.path.join(output_dir, 'SubChain_benchmark.json')
     with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2, default=str)
-    print(f"\n💾 Results saved to: {results_path}")
     
-    # Print summary
     print_summary(all_results)
-    
     return all_results
 
 
-def print_summary(all_results: list[dict[str, Any]]) -> None:
+def print_summary(all_results: list[dict[str, Any]]):
     """Print a summary comparison table."""
-    print("\n" + "=" * 90)
-    print("📈 SUBCHAIN BENCHMARK SUMMARY")
-    print("=" * 90)
-    
-    python_result = next((r for r in all_results if r.get("implementation") == "Python" and "error" not in r), None)
-    rust_result = next((r for r in all_results if r.get("implementation") == "Rust" and "error" not in r), None)
-    
-    if not python_result and not rust_result:
-        print("  No valid results available")
-        return
-    
+    w = 100
+    m_h = f"{'Operation':<30} | {'Python Result':<18} | "
+    r_h = f"{'Rust Result':<18} | {'Speedup':<8} | {'Status':<6}"
+    h = m_h + r_h
+
+    print("\n" + "=" * w)
+    print(f"{'SUBCHAIN BENCHMARK SUMMARY':^100}")
+    print("=" * w)
+    print(h)
+    print("-" * w)
+
+    def get_status_icon(py_v, rs_v):
+        if not py_v or not rs_v or py_v == 0 or rs_v == 0:
+            return "N/A", ""
+        sp = rs_v / py_v
+        if sp > 1.5:
+            return f"{sp:.2f}x", "🚀"
+        if sp < 0.8:
+            return f"{sp:.2f}x", "⚠️"
+        return f"{sp:.2f}x", "➡️"
+
+    py_res = next((r for r in all_results if r.get("implementation") == "Python"), None)
+    rs_res = next((r for r in all_results if r.get("implementation") == "Rust"), None)
+
     operations = [
         "create_subchain", "add_event", "start_operation",
         "complete_operation", "update_entity_status",
@@ -395,37 +333,26 @@ def print_summary(all_results: list[dict[str, Any]]) -> None:
         "should_submit_proof", "finalize_block"
     ]
     
-    print(f"\n{'─'*90}")
-    print(f"{'Operation':<30} | {'Python':>15} | {'Rust':>15} | {'Speedup':>12}")
-    print(f"{'─'*90}")
-    
     for op in operations:
-        py_bench = None
-        rs_bench = None
+        p_b = next((b for b in py_res.get("benchmarks", []) 
+                    if b.get("operation") == op), None) if py_res else None
+        r_b = next((b for b in rs_res.get("benchmarks", []) 
+                    if b.get("operation") == op), None) if rs_res else None
         
-        if python_result:
-            py_bench = next((b for b in python_result.get("benchmarks", []) if b.get("operation") == op), None)
-        if rust_result:
-            rs_bench = next((b for b in rust_result.get("benchmarks", []) if b.get("operation") == op), None)
+        pv = p_b.get("ops_per_second", 0) if p_b else 0
+        rv = r_b.get("ops_per_second", 0) if r_b else 0
         
-        if py_bench and rs_bench:
-            py_metric = py_bench.get("ops_per_second", 0)
-            rs_metric = rs_bench.get("ops_per_second", 0)
-            speedup = rs_metric / py_metric if py_metric > 0 else 0
-            indicator = "🚀" if speedup > 1.5 else ("⚠️" if speedup < 0.8 else "➡️")
-            print(f"  {op:<28} | {py_metric:>12.1f}/s | {rs_metric:>12.1f}/s | {indicator} {speedup:.2f}x")
-        elif py_bench:
-            py_metric = py_bench.get("ops_per_second", 0)
-            print(f"  {op:<28} | {py_metric:>12.1f}/s | {'N/A':>12} | {'N/A':>12}")
-        elif rs_bench:
-            rs_metric = rs_bench.get("ops_per_second", 0)
-            print(f"  {op:<28} | {'N/A':>12} | {rs_metric:>12.1f}/s | {'N/A':>12}")
-    
-    print(f"{'─'*90}")
+        pt = f"{pv:>12.1f} op/s" if pv else "N/A"
+        rt = f"{rv:>12.1f} op/s" if rv else "N/A"
+        
+        sp, icon = get_status_icon(pv, rv)
+        print(f"{op:<30} | {pt:<18} | {rt:<18} | {sp:<8} | {icon:<6}")
+
+    print("=" * w)
     print("Legend: 🚀 Rust faster (>1.5x) | ➡️ Similar | ⚠️ Python faster")
-    print("=" * 90)
+    print("=" * w)
 
 
 if __name__ == "__main__":
-    results = run_comprehensive_benchmark()
+    run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")

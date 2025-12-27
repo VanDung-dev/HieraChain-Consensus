@@ -242,11 +242,6 @@ def create_main_chain(main_chain_class: Any, name: str, consensus_type: str = "p
 
 def run_single_benchmark(main_chain_class: Any, impl_name: str, consensus_type: str, config: dict[str, Any]) -> dict[str, Any]:
     """Run all benchmarks for a single implementation."""
-    full_name = f"{impl_name} ({consensus_type})"
-    print(f"\n{'='*50}")
-    print(f"🔧 Benchmarking {full_name}")
-    print(f"{'='*50}")
-    
     results: dict[str, Any] = {
         "implementation": impl_name,
         "consensus_type": consensus_type,
@@ -258,64 +253,44 @@ def run_single_benchmark(main_chain_class: Any, impl_name: str, consensus_type: 
         # Create fresh main chain
         main_chain = create_main_chain(main_chain_class, "BenchmarkMainChain", consensus_type)
         
-        # Verify consensus type was set correctly (Rust only)
-        if hasattr(main_chain, "consensus_type"):
-            actual_ct = main_chain.consensus_type
-            print(f"   Consensus: {actual_ct}")
-        
         # 1. Benchmark sub-chain registration
-        print(f"\n📝 Testing sub-chain registration ({config['sub_chain_count']} sub-chains)...")
         result = benchmark_sub_chain_registration(main_chain, config['sub_chain_count'])
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} registrations/sec")
-        
+        # print(f"   ✅ {result['ops_per_second']:.2f} registrations/sec")
+
         # 2. Fresh chain for proof tests
         main_chain = create_main_chain(main_chain_class, "BenchmarkMainChain2", consensus_type)
-        print(f"\n📦 Testing proof addition ({config['proof_count']} proofs)...")
         result = benchmark_proof_addition(main_chain, config['proof_count'])
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} proofs/sec")
-        
+
         # 3. Proof verification
         main_chain = create_main_chain(main_chain_class, "BenchmarkMainChain3", consensus_type)
-        print(f"\n🔍 Testing proof verification...")
         result = benchmark_proof_verification(main_chain)
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['ops_per_second']:.2f} verifications/sec (found: {result['found']})")
         
         # 4. Block finalization
         main_chain = create_main_chain(main_chain_class, "BenchmarkMainChain4", consensus_type)
-        print(f"\n⛓️ Testing block finalization ({config['num_blocks']} blocks × {config['proofs_per_block']} proofs)...")
         result = benchmark_block_finalization(main_chain, config['num_blocks'], config['proofs_per_block'])
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['blocks_per_second']:.2f} blocks/sec (avg: {result['avg_time']*1000:.2f}ms)")
         
         # 5. Integrity report
         main_chain = create_main_chain(main_chain_class, "BenchmarkMainChain5", consensus_type)
-        print(f"\n📊 Testing integrity report generation...")
         result = benchmark_integrity_report(main_chain)
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['time']*1000:.4f}ms")
         
         # 6. Get stats
-        print(f"\n📈 Testing get_main_chain_stats...")
         result = benchmark_get_stats(main_chain)
         results["benchmarks"].append(result)
-        print(f"   ✅ {result['time']*1000:.4f}ms")
 
         # 7. Get proofs by sub-chain (New)
         if hasattr(main_chain, "get_proofs_by_sub_chain"):
-            print(f"\n🔍 Testing get_proofs_by_sub_chain...")
             result = benchmark_get_proofs_by_sub_chain(main_chain, "SubChainProofsTest")
             results["benchmarks"].append(result)
-            print(f"   ✅ {result['ops_per_second']:.2f} ops/s")
         
         # 8. Get sub-chain summary (New)
         if hasattr(main_chain, "get_sub_chain_summary"):
-            print(f"\n📋 Testing get_sub_chain_summary...")
             result = benchmark_get_sub_chain_summary(main_chain, "SubChainSummaryTest")
             results["benchmarks"].append(result)
-            print(f"   ✅ {result['ops_per_second']:.2f} ops/s")
         
     except Exception as e:
         print(f"   ❌ Error: {e}")
@@ -328,10 +303,6 @@ def run_single_benchmark(main_chain_class: Any, impl_name: str, consensus_type: 
 
 def run_comprehensive_benchmark() -> list[dict[str, Any]]:
     """Run comprehensive benchmark comparing Python and Rust implementations."""
-    print("🚀 Starting MainChain Benchmark (PoA + PoF)")
-    print("=" * 60)
-    print(f"🕐 Started at: {datetime.now().isoformat()}")
-    print("=" * 60)
     
     # Benchmark configuration - use Medium only for faster testing
     config: dict[str, Any] = {
@@ -347,16 +318,7 @@ def run_comprehensive_benchmark() -> list[dict[str, Any]]:
     
     all_results: list[dict[str, Any]] = []
     
-    print(f"\n\n{'#'*60}")
-    print(f"# Configuration: {config['label']}")
-    print(f"# Sub-chains: {config['sub_chain_count']}, Proofs: {config['proof_count']}")
-    print(f"{'#'*60}")
-    
     for ct in consensus_types:
-        print(f"\n\n{'='*60}")
-        print(f"📋 CONSENSUS TYPE: {ct.upper()}")
-        print(f"{'='*60}")
-        
         # Python benchmark
         if PYTHON_AVAILABLE and PythonMainChain is not None:
             result = run_single_benchmark(PythonMainChain, "Python", ct, config)
@@ -377,7 +339,6 @@ def run_comprehensive_benchmark() -> list[dict[str, Any]]:
     results_path = os.path.join(output_dir, 'MainChain_benchmark.json')
     with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2, default=str)
-    print(f"\n💾 Results saved to: {results_path}")
     
     # Print summary
     print_summary(all_results)
@@ -387,71 +348,88 @@ def run_comprehensive_benchmark() -> list[dict[str, Any]]:
 
 def print_summary(all_results: list[dict[str, Any]]) -> None:
     """Print a summary comparison table."""
-    print("\n" + "=" * 90)
-    print("📈 MAINCHAIN BENCHMARK SUMMARY")
-    print("=" * 90)
-    
-    # Group results by consensus type
-    for ct in ["proof_of_authority", "proof_of_federation"]:
-        ct_results = [r for r in all_results if r.get("consensus_type") == ct and "error" not in r]
-        
-        if not ct_results:
-            continue
+    # Table width and headers
+    w = 100
+    m_h = f"{'Metric (Consensus)':<30} | {'Python Result':<18} | "
+    r_h = f"{'Rust Result':<18} | {'Speedup':<8} | {'Status':<6}"
+    h = m_h + r_h
+
+    print("\n" + "=" * w)
+    print(f"{'MAINCHAIN BENCHMARK SUMMARY':^100}")
+    print("=" * w)
+    print(h)
+    print("-" * w)
+
+    def get_status_icon(py_v, rs_v, higher_is_better=True):
+        if not py_v or not rs_v or py_v == 0 or rs_v == 0:
+            return "N/A", ""
+        sp = (rs_v / py_v) if higher_is_better else (py_v / rs_v)
+
+        if sp > 1.5:
+            return f"{sp:.2f}x", "🚀"
+        if sp < 0.8:
+            return f"{sp:.2f}x", "⚠️"
+        return f"{sp:.2f}x", "➡️"
+
+    ops = [
+        ("register_sub_chain", "Registration", True),
+        ("add_proof", "Proof Add", True),
+        ("verify_proof", "Proof Verify", True),
+        ("finalize_block", "Finalization", True),
+        ("get_hierarchical_integrity_report", "Integrity Rep.", False),
+        ("get_main_chain_stats", "Stats", False),
+        ("get_proofs_by_sub_chain", "List Proofs", True),
+        ("get_sub_chain_summary", "Summary", True)
+    ]
+
+    for op_id, op_name, higher_is_better in ops:
+        for ct in ["proof_of_authority", "proof_of_federation"]:
+            ct_s = "PoA" if ct == "proof_of_authority" else "PoF"
+            ct_res = [r for r in all_results if r.get("consensus_type") == ct]
             
-        ct_label = "PoA (Proof of Authority)" if ct == "proof_of_authority" else "PoF (Proof of Federation)"
-        print(f"\n{'─'*90}")
-        print(f"🔐 {ct_label}")
-        print(f"{'─'*90}")
-        
-        python_result = next((r for r in ct_results if r.get("implementation") == "Python"), None)
-        rust_result = next((r for r in ct_results if r.get("implementation") == "Rust"), None)
-        
-        if not python_result and not rust_result:
-            print("  No results available")
-            continue
-        
-        operations = ["register_sub_chain", "add_proof", "verify_proof", "finalize_block", 
-                      "get_hierarchical_integrity_report", "get_main_chain_stats",
-                      "get_proofs_by_sub_chain", "get_sub_chain_summary"]
-        
-        for op in operations:
-            py_bench = None
-            rs_bench = None
+            p_d = next((r for r in ct_res if r.get("implementation") == "Python"), None)
+            r_d = next((r for r in ct_res if r.get("implementation") == "Rust"), None)
             
-            if python_result:
-                py_bench = next((b for b in python_result.get("benchmarks", []) if b.get("operation") == op), None)
-            if rust_result:
-                rs_bench = next((b for b in rust_result.get("benchmarks", []) if b.get("operation") == op), None)
+            p_b = next((b for b in p_d.get("benchmarks", [])
+                if b.get("operation") == op_id), None) if p_d else None
+            r_b = next((b for b in r_d.get("benchmarks", [])
+                if b.get("operation") == op_id), None) if r_d else None
             
-            if py_bench and rs_bench:
-                if "ops_per_second" in py_bench:
-                    py_metric = py_bench.get("ops_per_second", 0)
-                    rs_metric = rs_bench.get("ops_per_second", 0)
-                    speedup = rs_metric / py_metric if py_metric > 0 else 0
-                    indicator = "🚀" if speedup > 1.5 else ("⚠️" if speedup < 0.8 else "➡️")
-                    print(f"  {op:40} | Py: {py_metric:>10.1f} ops/s | Rs: {rs_metric:>10.1f} ops/s | {indicator} {speedup:.2f}x")
-                elif "blocks_per_second" in py_bench:
-                    py_metric = py_bench.get("blocks_per_second", 0)
-                    rs_metric = rs_bench.get("blocks_per_second", 0)
-                    speedup = rs_metric / py_metric if py_metric > 0 else 0
-                    indicator = "🚀" if speedup > 1.5 else ("⚠️" if speedup < 0.8 else "➡️")
-                    print(f"  {op:40} | Py: {py_metric:>10.1f} blk/s | Rs: {rs_metric:>10.1f} blk/s | {indicator} {speedup:.2f}x")
+            p_val, r_val = 0.0, 0.0
+            pt, rt = "N/A", "N/A"
+
+            if p_b:
+                if "ops_per_second" in p_b:
+                    p_val = float(p_b['ops_per_second'])
+                    pt = f"{p_val:>10,.1f} op/s"
+                elif "blocks_per_second" in p_b:
+                    p_val = float(p_b['blocks_per_second'])
+                    pt = f"{p_val:>10,.1f} blk/s"
                 else:
-                    py_time = py_bench.get("time", 0) * 1000
-                    rs_time = rs_bench.get("time", 0) * 1000
-                    speedup = py_time / rs_time if rs_time > 0 else 0
-                    indicator = "🚀" if speedup > 1.5 else ("⚠️" if speedup < 0.8 else "➡️")
-                    print(f"  {op:40} | Py: {py_time:>10.4f} ms   | Rs: {rs_time:>10.4f} ms   | {indicator} {speedup:.2f}x")
-            elif py_bench:
-                print(f"  {op:40} | Python only")
-            elif rs_bench:
-                print(f"  {op:40} | Rust only")
-    
-    print("\n" + "=" * 90)
+                    p_val = float(p_b.get('time', 0))
+                    pt = f"{p_val*1000:>10.2f} ms"
+
+            if r_b:
+                if "ops_per_second" in r_b:
+                    r_val = float(r_b['ops_per_second'])
+                    rt = f"{r_val:>10,.1f} op/s"
+                elif "blocks_per_second" in r_b:
+                    r_val = float(r_b['blocks_per_second'])
+                    rt = f"{r_val:>10,.1f} blk/s"
+                else:
+                    r_val = float(r_b.get('time', 0))
+                    rt = f"{r_val*1000:>10.2f} ms"
+
+            sp_str, icon = get_status_icon(p_val, r_val, higher_is_better)
+            row = f"{op_name} ({ct_s})"
+            print(f"{row:<30} | {pt:<18} | {rt:<18} | {sp_str:<8} | {icon:<6}")
+        print("-" * w)
+
+    print("=" * w)
     print("Legend: 🚀 Rust faster (>1.5x) | ➡️ Similar | ⚠️ Python faster")
-    print("=" * 90)
+    print("=" * w)
 
 
 if __name__ == "__main__":
-    results = run_comprehensive_benchmark()
+    benchmark_results = run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")

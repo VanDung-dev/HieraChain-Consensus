@@ -15,13 +15,16 @@ import json
 import sys
 import os
 import hashlib
-import matplotlib.pyplot as plt
 from typing import Any
 from datetime import datetime
 from dataclasses import dataclass
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Configure logging to suppress debug output
+import logging
+logging.getLogger("hierachain").setLevel(logging.WARNING)
 
 # --- Implementation Imports ---
 
@@ -106,10 +109,7 @@ class MockMessage:
 # --- Benchmark Functions ---
 
 def benchmark_message_creation(iterations: int) -> dict[str, Any]:
-    """
-    Benchmark BFT message creation performance.
-    """
-    print(f"\n📦 Benchmarking Message Creation ({iterations} iterations)...")
+    """Benchmark BFT message creation performance."""
 
     results = {}
 
@@ -132,8 +132,6 @@ def benchmark_message_creation(iterations: int) -> dict[str, Any]:
             "avg_time_us": (elapsed / iterations) * 1_000_000,
             "ops_per_sec": iterations / elapsed
         }
-        print(f"  ✅ Python: {elapsed:.4f}s "
-              f"({results['python']['ops_per_sec']:.2f} msg/sec)")
 
     # Rust implementation (using KeyPair for message signing simulation)
     if RUST_AVAILABLE and RsKeyPair:
@@ -150,14 +148,6 @@ def benchmark_message_creation(iterations: int) -> dict[str, Any]:
             "avg_time_us": (elapsed / iterations) * 1_000_000,
             "ops_per_sec": iterations / elapsed
         }
-        print(f"  ✅ Rust: {elapsed:.4f}s "
-              f"({results['rust']['ops_per_sec']:.2f} msg/sec)")
-
-        # Calculate speedup
-        if "python" in results:
-            speedup = (results["python"]["ops_per_sec"] /
-                       results["rust"]["ops_per_sec"])
-            print(f"  📊 Rust/Python ratio: {1/speedup:.2f}x")
 
     # Fallback mock implementation for testing (no crypto overhead)
     start = time.perf_counter()
@@ -170,17 +160,12 @@ def benchmark_message_creation(iterations: int) -> dict[str, Any]:
         "avg_time_us": (elapsed / iterations) * 1_000_000,
         "ops_per_sec": iterations / elapsed
     }
-    print(f"  ✅ Simulated: {elapsed:.4f}s "
-          f"({results['mock']['ops_per_sec']:.2f} msg/sec)")
 
     return results
 
 
 def benchmark_signature_operations(iterations: int) -> dict[str, Any]:
-    """
-    Benchmark signature creation and verification.
-    """
-    print(f"\n🔐 Benchmarking Signature Operations ({iterations} iterations)...")
+    """Benchmark signature creation and verification."""
     
     results = {}
     
@@ -214,10 +199,6 @@ def benchmark_signature_operations(iterations: int) -> dict[str, Any]:
             "verify_avg_us": (verify_time / iterations) * 1_000_000,
             "verify_ops_per_sec": iterations / verify_time
         }
-        print(f"  ✅ Python Sign: {sign_time:.4f}s "
-              f"({results['python']['sign_ops_per_sec']:.2f} ops/sec)")
-        print(f"  ✅ Python Verify: {verify_time:.4f}s "
-              f"({results['python']['verify_ops_per_sec']:.2f} ops/sec)")
 
     # Rust implementation
     if RUST_AVAILABLE and RsKeyPair and RsVerifySignature:
@@ -247,19 +228,6 @@ def benchmark_signature_operations(iterations: int) -> dict[str, Any]:
             "verify_avg_us": (verify_time / iterations) * 1_000_000,
             "verify_ops_per_sec": iterations / verify_time
         }
-        print(f"  ✅ Rust Sign: {sign_time:.4f}s "
-              f"({results['rust']['sign_ops_per_sec']:.2f} ops/sec)")
-        print(f"  ✅ Rust Verify: {verify_time:.4f}s "
-              f"({results['rust']['verify_ops_per_sec']:.2f} ops/sec)")
-
-        # Calculate speedup
-        if "python" in results:
-            sign_speedup = (results["python"]["sign_ops_per_sec"] /
-                            results["rust"]["sign_ops_per_sec"])
-            verify_speedup = (results["python"]["verify_ops_per_sec"] /
-                              results["rust"]["verify_ops_per_sec"])
-            print(f"  📊 Rust/Python Sign ratio: {1/sign_speedup:.2f}x")
-            print(f"  📊 Rust/Python Verify ratio: {1/verify_speedup:.2f}x")
 
     # SHA256 hashing benchmark (baseline for comparison)
     message = b"Test message for BFT consensus benchmark"
@@ -274,8 +242,6 @@ def benchmark_signature_operations(iterations: int) -> dict[str, Any]:
         "avg_us": (hash_time / iterations) * 1_000_000,
         "ops_per_sec": iterations / hash_time
     }
-    print(f"  ✅ SHA256 Baseline: {hash_time:.4f}s "
-          f"({results['sha256_baseline']['ops_per_sec']:.2f} ops/sec)")
 
     return results
 
@@ -289,8 +255,7 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
     2. Prepare messages from 2f nodes
     3. Commit messages from 2f+1 nodes
     """
-    print(f"\n🔄 Benchmarking Consensus Round (Nodes: {config.node_count}, f={config.fault_tolerance}, Iterations: {config.iterations})...")
-    
+
     results = {}
     n = config.node_count
     f = config.fault_tolerance
@@ -320,15 +285,9 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
             total_time = 0.0
             for iteration in range(config.iterations):
                 start = time.perf_counter()
-                
-                # 1. Client request to primary
+
                 operation = {"action": f"test_{iteration}", "data": "benchmark"}
                 consensus_nodes[primary].request(operation)
-                
-                # 2. Simulate prepare phase (broadcast pre-prepare, collect prepares)
-                # In real implementation this would involve network
-                
-                # 3. Simulate commit phase
                 
                 elapsed = time.perf_counter() - start
                 total_time += elapsed
@@ -338,11 +297,8 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
                 "avg_round_ms": (total_time / config.iterations) * 1000,
                 "rounds_per_sec": config.iterations / total_time
             }
-            print(f"  ✅ Python: {total_time:.4f}s "
-                  f"({results['python']['rounds_per_sec']:.2f} rounds/sec)")
 
         except Exception as e:
-            print(f"  ⚠ Python benchmark failed: {e}")
             results["python"] = {"error": str(e)}
 
     # Rust implementation
@@ -371,12 +327,8 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
             for iteration in range(config.iterations):
                 start = time.perf_counter()
 
-                # 1. Client request to primary
                 operation = {"action": f"test_{iteration}", "data": "benchmark"}
                 consensus_nodes[primary].request(operation)
-
-                # 2. Simulate prepare phase
-                # 3. Simulate commit phase
 
                 elapsed = time.perf_counter() - start
                 total_time += elapsed
@@ -386,17 +338,8 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
                 "avg_round_ms": (total_time / config.iterations) * 1000,
                 "rounds_per_sec": config.iterations / total_time
             }
-            print(f"  ✅ Rust: {total_time:.4f}s "
-                  f"({results['rust']['rounds_per_sec']:.2f} rounds/sec)")
-
-            # Calculate speedup if Python also ran
-            if "python" in results and "error" not in results["python"]:
-                speedup = (results["python"]["total_time"] /
-                           results["rust"]["total_time"])
-                print(f"  🚀 Rust speedup: {speedup:.2f}x faster than Python")
 
         except Exception as e:
-            print(f"  ⚠ Rust benchmark failed: {e}")
             results["rust"] = {"error": str(e)}
     
     # Simulated round (for metrics baseline)
@@ -431,16 +374,12 @@ def benchmark_consensus_round(config: BenchmarkConfig) -> dict[str, Any]:
         "rounds_per_sec": config.iterations / total_time,
         "note": "Simulated without actual crypto/network"
     }
-    print(f"  ✅ Simulated: {total_time:.4f}s ({results['simulated']['rounds_per_sec']:.2f} rounds/sec)")
     
     return results
 
 
 def benchmark_view_change(config: BenchmarkConfig) -> dict[str, Any]:
-    """
-    Benchmark view change protocol performance.
-    """
-    print(f"\n🔃 Benchmarking View Change ({config.iterations} iterations)...")
+    """Benchmark view change protocol performance."""
     
     results = {}
     f = config.fault_tolerance
@@ -472,41 +411,30 @@ def benchmark_view_change(config: BenchmarkConfig) -> dict[str, Any]:
         "avg_view_change_ms": (total_time / config.iterations) * 1000,
         "view_changes_per_sec": config.iterations / total_time
     }
-    print(f"  ✅ Simulated: {total_time:.4f}s ({results['simulated']['view_changes_per_sec']:.2f} vc/sec)")
     
     return results
 
 
 def benchmark_throughput_scaling(base_iterations: int = 1000) -> dict[str, Any]:
-    """
-    Benchmark how throughput scales with network size.
-    """
-    print(f"\n📊 Benchmarking Throughput Scaling...")
+    """Benchmark how throughput scales with network size."""
 
     configs = [
-        BenchmarkConfig(node_count=4, iterations=base_iterations,
-                        fault_tolerance=1),
-        BenchmarkConfig(node_count=7, iterations=base_iterations,
-                        fault_tolerance=2),
-        BenchmarkConfig(node_count=10, iterations=base_iterations // 2,
-                        fault_tolerance=3),
-        BenchmarkConfig(node_count=13, iterations=base_iterations // 4,
-                        fault_tolerance=4),
+        BenchmarkConfig(node_count=4, iterations=base_iterations, fault_tolerance=1),
+        BenchmarkConfig(node_count=7, iterations=base_iterations, fault_tolerance=2),
+        BenchmarkConfig(node_count=10, iterations=base_iterations // 2, fault_tolerance=3),
+        BenchmarkConfig(node_count=13, iterations=base_iterations // 4, fault_tolerance=4),
     ]
 
     results = []
     for cfg in configs:
-        print(f"\n  Testing n={cfg.node_count}, f={cfg.fault_tolerance}...")
         round_result = benchmark_consensus_round(cfg)
 
         result = {
             "node_count": cfg.node_count,
             "fault_tolerance": cfg.fault_tolerance,
             "iterations": cfg.iterations,
-            "python_rounds_per_sec": round_result.get(
-                "python", {}).get("rounds_per_sec", 0),
-            "rust_rounds_per_sec": round_result.get(
-                "rust", {}).get("rounds_per_sec", 0),
+            "python_rounds_per_sec": round_result.get("python", {}).get("rounds_per_sec", 0),
+            "rust_rounds_per_sec": round_result.get("rust", {}).get("rounds_per_sec", 0),
         }
         results.append(result)
 
@@ -517,10 +445,6 @@ def run_comprehensive_benchmark():
     """
     Run all BFT consensus benchmarks.
     """
-    print("🚀 Starting BFT Consensus Benchmark Suite")
-    print("=" * 60)
-    print(f"🕐 Started at: {datetime.now().isoformat()}")
-    print("=" * 60)
     
     all_results = {
         "timestamp": datetime.now().isoformat(),
@@ -578,211 +502,79 @@ def run_comprehensive_benchmark():
 
 
 def print_summary(results: dict):
-    """Print a summary of benchmark results."""
-    print("\n" + "=" * 60)
-    print("📈 BENCHMARK SUMMARY")
-    print("=" * 60)
-    
+    """Print a summary of benchmark results comparing Python and Rust."""
+    # Table width and headers
+    w = 100
+    m_h = f"{'Metric':<30} | {'Python Result':<18} | "
+    r_h = f"{'Rust Result':<18} | {'Speedup':<8} | {'Status':<6}"
+    h = m_h + r_h
+
+    print("\n" + "=" * w)
+    print(f"{'BFT CONSENSUS BENCHMARK SUMMARY':^100}")
+    print("=" * w)
+    print(h)
+    print("-" * w)
+
+    def get_status_icon(py_val, rs_val):
+        if not py_val or not rs_val or py_val == 0:
+            return "N/A", ""
+        speedup = rs_val / py_val
+        if speedup > 1.5:
+            return f"{speedup:.2f}x", "🚀"
+        if speedup < 0.8:
+            return f"{speedup:.2f}x", "⚠️"
+        return f"{speedup:.2f}x", "➡️"
+
     # Message Creation
     if "message_creation" in results:
         mc = results["message_creation"]
-        print("\n📦 Message Creation:")
-        if "python" in mc:
-            print(f"  • Python: {mc['python']['ops_per_sec']:.2f} msg/sec")
-        if "mock" in mc:
-            print(f"  • Simulated: {mc['mock']['ops_per_sec']:.2f} msg/sec")
-    
+        py_v = mc.get("python", {}).get("ops_per_sec", 0)
+        rs_v = mc.get("rust", {}).get("ops_per_sec", 0)
+        sp_str, icon = get_status_icon(py_v, rs_v)
+
+        py_s = f"{py_v:>10,.0f} msg/s" if py_v else "N/A"
+        rs_s = f"{rs_v:>10,.0f} msg/s" if rs_v else "N/A"
+        print(f"{'Message Creation':<30} | {py_s:<18} | {rs_s:<18} | "f"{sp_str:<8} | {icon:<6}")
+
     # Signature Operations
     if "signature_operations" in results:
         so = results["signature_operations"]
-        print("\n🔐 Signature Operations:")
-        if "python" in so:
-            print(f"  • Python Sign: {so['python']['sign_ops_per_sec']:.2f} ops/sec")
-            print(f"  • Python Verify: {so['python']['verify_ops_per_sec']:.2f} ops/sec")
-        print(f"  • SHA256 Baseline: {so['sha256_baseline']['ops_per_sec']:.2f} ops/sec")
-    
+        for op in ["sign", "verify"]:
+            py_v = so.get("python", {}).get(f"{op}_ops_per_sec", 0)
+            rs_v = so.get("rust", {}).get(f"{op}_ops_per_sec", 0)
+            sp_str, icon = get_status_icon(py_v, rs_v)
+            py_s = f"{py_v:>10,.0f} ops/s" if py_v else "N/A"
+            rs_s = f"{rs_v:>10,.0f} ops/s" if rs_v else "N/A"
+            label = f"Signature {op.capitalize()}"
+            print(f"{label:<30} | {py_s:<18} | {rs_s:<18} | "f"{sp_str:<8} | {icon:<6}")
+
     # Consensus Rounds
     if "consensus_rounds" in results:
-        print("\n🔄 Consensus Rounds:")
+        print("-" * w)
         for cr in results["consensus_rounds"]:
-            cfg = cr["config"]
-            if "simulated" in cr["results"]:
-                sim = cr["results"]["simulated"]
-                print(f"  • n={cfg['n']}, f={cfg['f']}: {sim['rounds_per_sec']:.2f} rounds/sec")
-    
-    # Throughput Scaling
-    if "throughput_scaling" in results:
-        print("\n📊 Throughput Scaling:")
-        for sr in results["throughput_scaling"]["scaling_results"]:
-            print(f"  • n={sr['node_count']}: {sr.get('rounds_per_sec', 0):.2f} rounds/sec")
-    
-    print("\n" + "=" * 60)
+            cfg, res = cr["config"], cr["results"]
+            label = f"Round (n={cfg['n']}, f={cfg['f']})"
+            py_v = res.get("python", {}).get("rounds_per_sec", 0)
+            rs_v = res.get("rust", {}).get("rounds_per_sec", 0)
 
+            p_res = res.get("python")
+            r_res = res.get("rust")
+            py_err = isinstance(p_res, dict) and "error" in p_res
+            rs_err = isinstance(r_res, dict) and "error" in r_res
 
-def analyze_and_plot(file_path: str):
-    """
-    Read benchmark results and generate plots.
-    """
-    try:
-        with open(file_path) as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print(f"❌ Could not find result file: {file_path}")
-        return
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle('BFT Consensus Benchmark Results', fontsize=14, fontweight='bold')
-    
-    # 1. Message Creation Performance (Python vs Rust)
-    ax = axes[0, 0]
-    mc = data.get("message_creation", {})
-    impls = []
-    ops = []
-    colors = []
-    if "python" in mc:
-        impls.append("Python")
-        ops.append(mc["python"]["ops_per_sec"])
-        colors.append('steelblue')
-    if "rust" in mc:
-        impls.append("Rust")
-        ops.append(mc["rust"]["ops_per_sec"])
-        colors.append('darkorange')
+            py_s = "ERROR" if py_err else (
+                f"{py_v:>10,.0f} rnd/s" if py_v else "N/A")
+            rs_s = "ERROR" if rs_err else (
+                f"{rs_v:>10,.0f} rnd/s" if rs_v else "N/A")
 
-    ax.bar(impls, ops, color=colors)
-    ax.set_title('Message Creation: Python vs Rust')
-    ax.set_ylabel('Messages/second')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # 2. Signature Performance (Python vs Rust)
-    ax = axes[0, 1]
-    so = data.get("signature_operations", {})
+            sp_str, icon = get_status_icon(py_v, rs_v)
+            print(f"{label:<30} | {py_s:<18} | {rs_s:<18} | "f"{sp_str:<8} | {icon:<6}")
 
-    # Grouped bar chart for sign/verify comparison
-    sig_labels = []
-    py_values = []
-    rs_values = []
-
-    if "python" in so:
-        sig_labels = ["Sign", "Verify"]
-        py_values = [so["python"]["sign_ops_per_sec"],
-                     so["python"]["verify_ops_per_sec"]]
-    if "rust" in so:
-        rs_values = [so["rust"]["sign_ops_per_sec"],
-                     so["rust"]["verify_ops_per_sec"]]
-
-    if sig_labels:
-        import numpy as np
-        x = np.arange(len(sig_labels))
-        width = 0.35
-
-        if py_values:
-            ax.bar(x - width/2, py_values, width,
-                   label='Python', color='steelblue')
-        if rs_values:
-            ax.bar(x + width/2, rs_values, width,
-                   label='Rust', color='darkorange')
-
-        ax.set_xlabel('Operation')
-        ax.set_ylabel('Operations/second')
-        ax.set_title('Signature Performance: Python vs Rust')
-        ax.set_xticks(x)
-        ax.set_xticklabels(sig_labels)
-        ax.legend()
-        ax.grid(True, alpha=0.3, axis='y')
-
-    # 3. Consensus Rounds by Network Size (Python vs Rust)
-    ax = axes[1, 0]
-    consensus = data.get("consensus_rounds", [])
-
-    # Extract data for each implementation
-    node_counts = []
-    python_rounds = []
-    rust_rounds = []
-
-    for cr in consensus:
-        node_counts.append(str(cr["config"]["n"]))
-        results = cr.get("results", {})
-        python_rounds.append(
-            results.get("python", {}).get("rounds_per_sec", 0)
-        )
-        rust_rounds.append(
-            results.get("rust", {}).get("rounds_per_sec", 0)
-        )
-
-    if node_counts:
-        import numpy as np
-        x = np.arange(len(node_counts))
-        width = 0.35
-
-        bars1 = ax.bar(x - width/2, python_rounds, width,
-                       label='Python', color='steelblue')
-        bars2 = ax.bar(x + width/2, rust_rounds, width,
-                       label='Rust', color='darkorange')
-
-        ax.set_xlabel('Number of Nodes')
-        ax.set_ylabel('Rounds/second')
-        ax.set_title('Consensus Throughput: Python vs Rust')
-        ax.set_xticks(x)
-        ax.set_xticklabels(node_counts)
-        ax.legend()
-        ax.grid(True, alpha=0.3, axis='y')
-
-        # Add value labels on bars
-        def add_labels(bars):
-            for bar in bars:
-                height = bar.get_height()
-                if height > 0:
-                    ax.annotate(f'{height:.0f}',
-                                xy=(bar.get_x() + bar.get_width() / 2, height),
-                                xytext=(0, 3),
-                                textcoords="offset points",
-                                ha='center', va='bottom', fontsize=8)
-
-        add_labels(bars1)
-        add_labels(bars2)
-
-    # 4. Throughput Scaling
-    ax = axes[1, 1]
-    scaling = data.get("throughput_scaling", {}).get("scaling_results", [])
-    if scaling:
-        nodes = [s["node_count"] for s in scaling]
-        python_throughput = [s.get("python_rounds_per_sec", 0) for s in scaling]
-        rust_throughput = [s.get("rust_rounds_per_sec", 0) for s in scaling]
-
-        ax.plot(nodes, python_throughput, marker='o', linewidth=2,
-                color='steelblue', label='Python')
-        ax.plot(nodes, rust_throughput, marker='s', linewidth=2,
-                color='darkorange', label='Rust')
-
-        ax.fill_between(nodes, python_throughput, alpha=0.15, color='steelblue')
-        ax.fill_between(nodes, rust_throughput, alpha=0.15, color='darkorange')
-
-        ax.set_title('Throughput Scaling: Python vs Rust')
-        ax.set_xlabel('Number of Nodes')
-        ax.set_ylabel('Rounds/second')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    output_dir = os.path.dirname(file_path)
-    chart_path = os.path.join(output_dir, 'BFT_benchmark.png')
-    plt.savefig(chart_path, dpi=150)
-    print(f"📊 Chart saved to: {chart_path}")
+    print("=" * w)
+    print("Legend: 🚀 Rust faster (>1.5x) | ➡️ Similar | ⚠️ Python faster")
+    print("=" * w)
 
 
 if __name__ == "__main__":
-    results = run_comprehensive_benchmark()
+    benchmark_results = run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")
-    
-    time.sleep(1)  # Ensure file write completion
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    results_path = os.path.join(script_dir, 'output', 'BFT_benchmark.json')
-    
-    if os.path.exists(results_path):
-        try:
-            analyze_and_plot(results_path)
-        except Exception as e:
-            print(f"⚠ Could not generate plots: {e}")
-    else:
-        print("⚠ Result file not found, skipping analysis.")

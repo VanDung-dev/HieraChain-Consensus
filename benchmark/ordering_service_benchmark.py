@@ -8,9 +8,7 @@ reused across multiple benchmark runs to accurately measure performance.
 import time
 import json
 import sys
-import statistics
 import os
-import matplotlib.pyplot as plt
 from typing import Any
 from datetime import datetime
 
@@ -18,16 +16,24 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # --- Implementation Imports ---
+PYTHON_AVAILABLE = False
+PythonOrderingService = None
+PythonOrderingNode = None
+
 try:
     from hierachain.consensus.ordering_service import (
-        OrderingService as PythonOrderingService,
-        OrderingNode as PythonOrderingNode
+        OrderingService as _PythonOrderingService,
+        OrderingNode as _PythonOrderingNode
     )
+    PythonOrderingService = _PythonOrderingService
+    PythonOrderingNode = _PythonOrderingNode
     PYTHON_AVAILABLE = True
-    print("✓ Python implementation available")
-except ImportError as e:
-    PYTHON_AVAILABLE = False
-    print(f"⚠ Warning: Python implementation not available: {e}")
+except ImportError:
+    pass
+
+RUST_AVAILABLE = False
+RustOrderingService = None
+RustOrderingNode = None
 
 try:
     import hierachain_consensus
@@ -35,13 +41,9 @@ try:
         RustOrderingService = hierachain_consensus.PyOrderingService
         RustOrderingNode = hierachain_consensus.PyOrderingNode
         RUST_AVAILABLE = True
-        print("✓ Rust implementation available")
-    else:
-        RUST_AVAILABLE = False
-        print("⚠ Warning: Rust module loaded but PyOrderingService not found.")
 except ImportError:
-    RUST_AVAILABLE = False
-    print("⚠ Warning: Rust implementation not available. Only Python benchmark will run.")
+    pass
+
 
 # --- Helper Functions ---
 
@@ -59,7 +61,6 @@ def create_test_events(count: int) -> list[dict[str, Any]]:
 def ensure_service_active(service: Any, timeout: float = 10.0) -> bool:
     """
     Ensure the provided service is in ACTIVE status.
-    If the service exposes a start() method, call it once and wait for ACTIVE.
     Returns True if ACTIVE within timeout, False otherwise.
     """
     try:
@@ -67,58 +68,46 @@ def ensure_service_active(service: Any, timeout: float = 10.0) -> bool:
     except Exception:
         status = {}
 
-    current = status.get('status') or status.get('state') or status.get('service_status') or None
-    # Normalize to string if enum-like object
-    if hasattr(current, "value"):
-        current = current.value
+    cur = status.get('status') or status.get('state') \
+        or status.get('service_status') or None
+    if hasattr(cur, "value"):
+        cur = cur.value
 
-    if current and str(current).lower() == "active":
+    if cur and str(cur).lower() == "active":
         return True
 
-    # Try to start if possible
     try:
         if hasattr(service, "start"):
             service.start()
     except Exception:
-        # ignore start exceptions; will check status below
         pass
 
     start_t = time.perf_counter()
     while time.perf_counter() - start_t < timeout:
         try:
             status = service.get_service_status()
-            current = status.get('status') or status.get('state') or status.get('service_status') or None
-            if hasattr(current, "value"):
-                current = current.value
-            if current and str(current).lower() == "active":
+            cur = status.get('status') or status.get('state') \
+                or status.get('service_status') or None
+            if hasattr(cur, "value"):
+                cur = cur.value
+            if cur and str(cur).lower() == "active":
                 return True
         except Exception:
-            # continue polling if status retrieval fails transiently
             pass
         time.sleep(0.1)
     return False
 
-# --- Main Benchmark Logic ---
 
-def benchmark_implementation(service: Any, event_count: int, block_size: int) -> dict[str, Any]:
-    """
-    Benchmarks a given service instance with a specified number of events.
-    """
-    implementation_name = "Python" if "hierachain.consensus" in str(type(service)) else "Rust"
-    print(f"\n* Benchmarking {implementation_name} with {event_count} events...")
+def benchmark_implementation(service: Any, event_count: int) -> dict[str, Any]:
+    """Benchmarks a given service instance with a specified number of events."""
+    impl_name = "Python" if "hierachain.consensus" in str(type(service)) \
+        else "Rust"
 
-    # Ensure service is ACTIVE before sending events
-    if not ensure_service_active(service, timeout=10.0):
-        err_msg = f"Service failed to reach ACTIVE status for {implementation_name}."
-        print(f"  ❌ {err_msg}")
-        return {"implementation": implementation_name, "event_count": event_count, "error": err_msg}
-
-    # Get initial state to correctly measure this run
-    try:
-        initial_status = service.get_service_status()
-        initial_blocks = initial_status.get('statistics', {}).get('blocks_created', 0)
-    except Exception:
-        initial_blocks = 0
+    if not ensure_service_active(service, timeout=15.0):
+        err = f"Service failed to reach ACTIVE status for {impl_name}."
+        print(f"  ❌ {err}")
+        return {"implementation": impl_name, "event_count": event_count,
+                "error": err}
 
     events = create_test_events(event_count)
     
@@ -128,234 +117,165 @@ def benchmark_implementation(service: Any, event_count: int, block_size: int) ->
     for event in events:
         try:
             service.receive_event(event, "test_channel", "test_org")
-        except RuntimeError as re:
-            # If service drifted into non-ACTIVE (e.g., maintenance), try to recover once
-            submission_errors += 1
-            print(f"  ⚠ Warning: receive_event error: {re}")
-            if ensure_service_active(service, timeout=3.0):
-                try:
-                    service.receive_event(event, "test_channel", "test_org")
-                    submission_errors -= 1  # recovered for this event
-                except Exception as e:
-                    print(f"  ❌ Failed to submit event after recovery attempt: {e}")
-            else:
-                # give up on further submissions
-                break
         except Exception as e:
             submission_errors += 1
-            print(f"  ⚠ Warning: unexpected receive_event exception: {e}")
+            print(f"  ⚠ Warning: receive_event exception: {e}")
+            if submission_errors >= 10:
+                break
     submission_time = time.perf_counter() - start_submission
     
-    # If we couldn't submit many events, record an error
-    if submission_errors > 0 and submission_errors >= event_count:
-        err_msg = "All event submissions failed; skipping retrieval."
-        print(f"  ❌ {err_msg}")
-        return {"implementation": implementation_name, "event_count": event_count, "error": err_msg}
+    if submission_errors >= event_count:
+        err = "All event submissions failed."
+        return {"implementation": impl_name, "event_count": event_count,
+                "error": err}
 
     # 2. Benchmark Block Retrieval
     start_retrieval = time.perf_counter()
     blocks_retrieved = []
-    retrieval_attempts = 0
-    max_retrieval_loops = 10000
-    while True and retrieval_attempts < max_retrieval_loops:
+    while True:
         try:
             block = service.get_next_block()
-        except Exception as e:
-            print(f"  ⚠ Warning: get_next_block exception: {e}")
+        except Exception:
             break
         if block is None:
             break
         blocks_retrieved.append(block)
-        retrieval_attempts += 1
     retrieval_time = time.perf_counter() - start_retrieval
     
-    # 4. Record Results
     result = {
-        "implementation": implementation_name,
+        "implementation": impl_name,
         "event_count": event_count,
         "submission_time": submission_time,
         "block_retrieval_time": retrieval_time,
-        "events_per_second_submission": event_count / submission_time if submission_time > 0 else 0,
+        "events_per_second_submission": (
+            event_count / submission_time if submission_time > 0 else 0
+        ),
         "blocks_created_in_run": len(blocks_retrieved),
     }
     
-    print(f"  ✅ Submission time: {submission_time:.4f}s")
-    print(f"  📈 Submission throughput: {result['events_per_second_submission']:.2f} events/sec")
-    print(f"  📦 Blocks created/retrieved in this run: {len(blocks_retrieved)}")
-    
     return result
 
+
 def run_comprehensive_benchmark():
-    """
-    Initializes services and runs a series of benchmarks, then prints a summary.
-    """
-    print("🚀 Starting comprehensive benchmark...")
-    print("=" * 60)
-    print(f"🕐 Started at: {datetime.now().isoformat()}")
-    print("=" * 60)
-    
+    """Initializes services and runs a series of benchmarks."""
+    if PYTHON_AVAILABLE:
+        print("✓ Python implementation available")
+    else:
+        print("⚠ Warning: Python implementation not available")
+
+    if RUST_AVAILABLE:
+        print("✓ Rust implementation available")
+    else:
+        print("⚠ Warning: Rust implementation not available")
+
     event_counts = [100, 1000, 5000, 10000]
     all_results = []
-    
-    # --- Common Configuration ---
-    nodes_config = [{"node_id": "node1", "endpoint": "http://localhost:7050", "is_leader": True, "weight": 1.0, "status": "active", "last_heartbeat": time.time()}]
-    service_config = {"block_size": 100, "batch_timeout": 0.5, "worker_threads": 4}
+    nodes_config = [{"node_id": "node1", "endpoint": "http://localhost:7050",
+                     "is_leader": True, "weight": 1.0, "status": "active",
+                     "last_heartbeat": time.time()}]
+    service_config = {
+        "block_size": 100,
+        "batch_timeout": 0.5,
+        "worker_threads": 4,
+        "start_timeout": 15.0
+    }
 
-    # --- Benchmark Python ---
-    if PYTHON_AVAILABLE:
-        print("\n--- 🐍 PYTHON BENCHMARK ---")
+    if PYTHON_AVAILABLE and PythonOrderingService and PythonOrderingNode:
         py_nodes = [PythonOrderingNode(**n) for n in nodes_config]
         python_service = PythonOrderingService(py_nodes, service_config)
-        # Ensure the python service is ACTIVE before running any benchmarks
-        if not ensure_service_active(python_service, timeout=10.0):
-            err_msg = "Python service not ACTIVE after start; skipping Python benchmarks."
-            print(f"  ❌ {err_msg}")
-            all_results.append({"implementation": "Python", "error": err_msg})
-        else:
+        if ensure_service_active(python_service, timeout=15.0):
             for count in event_counts:
-                result = benchmark_implementation(python_service, count, service_config["block_size"])
-                all_results.append(result)
+                res = benchmark_implementation(python_service, count)
+                all_results.append(res)
 
-    # --- Benchmark Rust ---
-    if RUST_AVAILABLE:
-        print("\n--- 🦀 RUST BENCHMARK ---")
+    if RUST_AVAILABLE and RustOrderingService and RustOrderingNode:
         try:
             rust_nodes = [RustOrderingNode(**n) for n in nodes_config]
             rust_service = RustOrderingService(rust_nodes, service_config)
-            if not ensure_service_active(rust_service, timeout=10.0):
-                err_msg = "Rust service not ACTIVE after start; skipping Rust benchmarks."
-                print(f"  ❌ {err_msg}")
-                all_results.append({"implementation": "Rust", "error": err_msg})
-            else:
+            if ensure_service_active(rust_service, timeout=15.0):
                 for count in event_counts:
-                    result = benchmark_implementation(rust_service, count, service_config["block_size"])
-                    all_results.append(result)
+                    res = benchmark_implementation(rust_service, count)
+                    all_results.append(res)
                 if hasattr(rust_service, "stop"):
                     rust_service.stop()
         except Exception as e:
             print(f"  ❌ Rust initialization error: {e}")
             all_results.append({"implementation": "Rust", "error": str(e)})
 
-    # --- Save and Print Summary ---
-    # Determine project root relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(script_dir, 'output')
-    
-    # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
     results_path = os.path.join(output_dir, 'OrderingService_benchmark.json')
-    print(f"DEBUG: Saving results to: {results_path}")
-    
-    with open(results_path, 'w') as f:
+    with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2)
     
-    print("\n" + "=" * 60)
-    print("📈 BENCHMARK SUMMARY")
-    print("=" * 60)
-    
-    valid_results = [r for r in all_results if "error" not in r]
-    python_results = [r for r in valid_results if r['implementation'] == 'Python']
-    rust_results = [r for r in valid_results if r['implementation'] == 'Rust']
-    
-    if python_results:
-        avg_python_eps = statistics.mean([r['events_per_second_submission'] for r in python_results])
-        print(f"\n🐍 Average Python submission performance: {avg_python_eps:.2f} events/second")
-    
-    if rust_results:
-        avg_rust_eps = statistics.mean([r['events_per_second_submission'] for r in rust_results])
-        print(f"🦀 Average Rust submission performance: {avg_rust_eps:.2f} events/second")
-        
-        if python_results and avg_python_eps > 0:
-            improvement = ((avg_rust_eps - avg_python_eps) / avg_python_eps) * 100
-            print(f"\n⚡ Overall Performance Improvement (Rust vs Python): {improvement:+.2f}%")
-
-    print("\n" + "=" * 60)
+    print_summary(all_results)
     return all_results
 
 
-def analyze_benchmark(file_path):
-    """
-    Reads the JSON result and generates plots.
-    """
-    try:
-        with open(file_path) as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print(f"❌ Could not find result file: {file_path}")
-        return
+def print_summary(all_results: list[dict[str, Any]]):
+    """Print a summary comparison table."""
+    w = 100
+    m_h = f"{'Event Count / Metric':<30} | {'Python Result':<18} | "
+    r_h = f"{'Rust Result':<18} | {'Speedup':<8} | {'Status':<6}"
+    h = m_h + r_h
 
-    # Split data by language
-    python_data = [d for d in data if d.get('implementation') == 'Python' and 'error' not in d]
-    rust_data = [d for d in data if d.get('implementation') == 'Rust' and 'error' not in d]
+    print("\n" + "=" * w)
+    print(f"{'ORDERING SERVICE BENCHMARK SUMMARY':^100}")
+    print("=" * w)
+    print(h)
+    print("-" * w)
 
-    if not python_data and not rust_data:
-        print("No valid data to plot.")
-        return
+    def get_status_icon(py_v, rs_v, higher_is_better=True):
+        if not py_v or not rs_v or py_v == 0 or rs_v == 0:
+            return "N/A", ""
+        sp = (rs_v / py_v) if higher_is_better else (py_v / rs_v)
 
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
-    fig.suptitle('Ordering Service Benchmark Results', fontsize=14, fontweight='bold')
+        if sp > 1.5:
+            return f"{sp:.2f}x", "🚀"
+        if sp < 0.8:
+            return f"{sp:.2f}x", "⚠️"
+        return f"{sp:.2f}x", "➡️"
 
-    # 1. events_per_second chart
-    # 1. events_per_second chart
-    ax = axes[0]
-    if python_data:
-        x = [d['event_count'] for d in python_data]
-        y = [d['events_per_second_submission'] for d in python_data]
-        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
-        ax.fill_between(x, y, alpha=0.15, color='steelblue')
+    py_res = [r for r in all_results if r.get("implementation") == "Python"]
+    rs_res = [r for r in all_results if r.get("implementation") == "Rust"]
 
-    if rust_data:
-        x = [d['event_count'] for d in rust_data]
-        y = [d['events_per_second_submission'] for d in rust_data]
-        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
-        ax.fill_between(x, y, alpha=0.15, color='darkorange')
+    counts = sorted(list(set(
+        [r["event_count"] for r in all_results if "event_count" in r]
+    )))
 
-    ax.set_title('Submission Throughput (Events/sec)')
-    ax.set_xlabel('Number of Events')
-    ax.set_ylabel('Events/sec')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    for count in counts:
+        p_r = next((r for r in py_res if r.get("event_count") == count), None)
+        r_r = next((r for r in rs_res if r.get("event_count") == count), None)
 
-    # 2. Block retrieval time chart
-    ax = axes[1]
-    if python_data:
-        x = [d['event_count'] for d in python_data]
-        y = [d['block_retrieval_time'] for d in python_data]
-        ax.plot(x, y, marker='o', label='Python', linewidth=2, color='steelblue')
-        ax.fill_between(x, y, alpha=0.15, color='steelblue')
-        
-    if rust_data:
-        x = [d['event_count'] for d in rust_data]
-        y = [d['block_retrieval_time'] for d in rust_data]
-        ax.plot(x, y, marker='s', label='Rust', linewidth=2, color='darkorange')
-        ax.fill_between(x, y, alpha=0.15, color='darkorange')
-    ax.set_title('Block Retrieval Time Comparison')
-    ax.set_xlabel('Number of Events')
-    ax.set_ylabel('Time (s)')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+        pv = p_r.get("events_per_second_submission", 0) if p_r else 0
+        rv = r_r.get("events_per_second_submission", 0) if r_r else 0
+        pt = f"{pv:>10,.1f} ev/s" if pv else "N/A"
+        rt = f"{rv:>10,.1f} ev/s" if rv else "N/A"
+        sp, icon = get_status_icon(pv, rv, True)
+        print(f"{f'{count} Events (Throughput)':<30} | {pt:<18} | "f"{rt:<18} | {sp:<8} | {icon:<6}")
 
-    plt.tight_layout()
+        pv = p_r.get("submission_time", 0) if p_r else 0
+        rv = r_r.get("submission_time", 0) if r_r else 0
+        pt = f"{pv*1000:>10.2f} ms" if pv else "N/A"
+        rt = f"{rv*1000:>10.2f} ms" if rv else "N/A"
+        sp, icon = get_status_icon(pv, rv, False)
+        print(f"{'  - Submission Time':<30} | {pt:<18} | {rt:<18} | "f"{sp:<8} | {icon:<6}")
 
-    # Save chart
-    output_dir = os.path.dirname(file_path)
-    chart_path = os.path.join(output_dir, 'OrderingService_benchmark.png')
-    plt.savefig(chart_path, dpi=150)
-    print(f"📊 Chart saved to '{chart_path}'")
+        pv = p_r.get("block_retrieval_time", 0) if p_r else 0
+        rv = r_r.get("block_retrieval_time", 0) if r_r else 0
+        pt = f"{pv*1000:>10.2f} ms" if pv else "N/A"
+        rt = f"{rv*1000:>10.2f} ms" if rv else "N/A"
+        sp, icon = get_status_icon(pv, rv, False)
+        print(f"{'  - Retrieval Time':<30} | {pt:<18} | {rt:<18} | "f"{sp:<8} | {icon:<6}")
+        print("-" * w)
+
+    print("=" * w)
+    print("Legend: 🚀 Rust faster (>1.5x) | ➡️ Similar | ⚠️ Python faster")
+    print("=" * w)
+
 
 if __name__ == "__main__":
     run_comprehensive_benchmark()
     print(f"\n🏁 Benchmark completed at: {datetime.now().isoformat()}")
-
-    # Determine project root relative to this script
-    time.sleep(1)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    results_path = os.path.join(script_dir, 'output', 'OrderingService_benchmark.json')
-
-    if os.path.exists(results_path):
-        print(f"DEBUG: Reading results from: {results_path}")
-        analyze_benchmark(results_path)
-    else:
-        print("⚠ Result file not found, skipping analysis.")
