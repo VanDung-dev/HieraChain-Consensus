@@ -10,5 +10,8 @@ pub mod py_wrapper;
 pub mod schemas;
 pub mod utils;
 
+// Re-export core types
+pub use block::Block;
+
 // Re-export PyO3 wrappers
-pub use py_wrapper::{PyProofOfAuthority, PyProofOfFederation};
+pub use py_wrapper::{PyBlockchain, PyProofOfAuthority, PyProofOfFederation};

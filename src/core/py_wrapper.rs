@@ -1,16 +1,239 @@
-//! PyO3 Wrappers for Core Consensus Module
+//! PyO3 Wrappers for Core Module
 //!
-//! This module provides Python bindings for consensus mechanisms:
+//! This module provides Python bindings for core blockchain components:
+//! - `PyBlockchain` - Python wrapper for Blockchain management  
 //! - `PyProofOfAuthority` - Python wrapper for Proof of Authority consensus
 //! - `PyProofOfFederation` - Python wrapper for Proof of Federation consensus
+//!
+//! Note: `Block` is exposed directly via #[pyclass] in block.rs
 
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-
+use pyo3::types::{PyDict, PyList};
+use pythonize::{depythonize, pythonize};
+use serde_json::Value;
+use crate::core::block::Block;
+use crate::core::blockchain::Blockchain;
 use crate::core::consensus::base_consensus::BaseConsensusTrait;
 use crate::core::consensus::proof_of_authority::ProofOfAuthority;
 use crate::core::consensus::proof_of_federation::ProofOfFederation;
 use crate::utils::pyo3_helpers::{dict_to_map, json_to_py};
+
+// ==================== PyBlockchain ====================
+
+/// PyO3 wrapper for Blockchain - exposes Blockchain to Python
+#[pyclass(name = "Blockchain")]
+pub struct PyBlockchain {
+    inner: Blockchain,
+}
+
+#[pymethods]
+impl PyBlockchain {
+    /// Create a new blockchain with a genesis block.
+    ///
+    /// # Arguments
+    /// * `name` - Name identifier for this blockchain (default: "Blockchain")
+    #[new]
+    #[pyo3(signature = (name = "Blockchain"))]
+    pub fn new(name: &str) -> Self {
+        PyBlockchain {
+            inner: Blockchain::new(name),
+        }
+    }
+
+    /// Get the blockchain name
+    #[getter]
+    pub fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    /// Set the blockchain name
+    #[setter]
+    pub fn set_name(&mut self, name: String) {
+        self.inner.name = name;
+    }
+
+    /// Get the number of blocks in the chain
+    #[getter]
+    pub fn chain_length(&self) -> usize {
+        self.inner.chain.len()
+    }
+
+    /// Get the number of pending events
+    #[getter]
+    pub fn pending_events_count(&self) -> usize {
+        self.inner.pending_events.len()
+    }
+
+    /// Get the latest block in the chain.
+    pub fn get_latest_block(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let block = self.inner.get_latest_block();
+        block.to_dict(py)
+    }
+
+    /// Add an event to the pending events list.
+    pub fn add_event(&mut self, event: &Bound<PyAny>) -> PyResult<()> {
+        let event_value: Value = depythonize(event)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        self.inner
+            .add_event(event_value)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+
+    /// Create a new block with the given events or pending events.
+    #[pyo3(signature = (events = None))]
+    pub fn create_block(
+        &mut self,
+        events: Option<&Bound<PyAny>>,
+        py: Python,
+    ) -> PyResult<Py<PyAny>> {
+        let events_vec = match events {
+            Some(e) => {
+                let list = e
+                    .downcast::<PyList>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err("events must be a list"))?;
+                let mut vec = Vec::new();
+                for item in list.iter() {
+                    let val: Value = depythonize(&item)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    vec.push(val);
+                }
+                Some(vec)
+            }
+            None => None,
+        };
+
+        let block = self
+            .inner
+            .create_block(events_vec)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+
+        block.to_dict(py)
+    }
+
+    /// Add a block to the blockchain after validation.
+    pub fn add_block(&mut self, block: &Bound<PyAny>) -> PyResult<bool> {
+        let rust_block: Block = depythonize(block)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(self.inner.add_block(rust_block))
+    }
+
+    /// Finalize pending events into a new block and add it to the chain.
+    pub fn finalize_block(&mut self, py: Python) -> PyResult<Option<Py<PyAny>>> {
+        match self.inner.finalize_block() {
+            Some(block) => Ok(Some(block.to_dict(py)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Validate a new block before adding it to the chain.
+    pub fn is_valid_new_block(&self, block: &Bound<PyAny>) -> PyResult<bool> {
+        let rust_block: Block = depythonize(block)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(self.inner.is_valid_new_block(&rust_block))
+    }
+
+    /// Validate the entire blockchain.
+    pub fn is_chain_valid(&self) -> bool {
+        self.inner.is_chain_valid()
+    }
+
+    /// Get all events for a specific entity across the entire chain.
+    pub fn get_events_by_entity(&self, entity_id: &str, py: Python) -> PyResult<Py<PyAny>> {
+        let events = self.inner.get_events_by_entity(entity_id);
+        let py_list = PyList::empty(py);
+        for event in events {
+            let py_event = pythonize(py, &event)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            py_list.append(py_event)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Get all events of a specific type across the entire chain.
+    pub fn get_events_by_type(&self, event_type: &str, py: Python) -> PyResult<Py<PyAny>> {
+        let events = self.inner.get_events_by_type(event_type);
+        let py_list = PyList::empty(py);
+        for event in events {
+            let py_event = pythonize(py, &event)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            py_list.append(py_event)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Get statistics about the blockchain.
+    pub fn get_chain_stats(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let stats = self.inner.get_chain_stats();
+        pythonize(py, &stats)
+            .map(|v| v.unbind())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Convert blockchain to dictionary representation.
+    pub fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let dict = self.inner.to_dict();
+        pythonize(py, &dict)
+            .map(|v| v.unbind())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Create a Blockchain instance from dictionary data.
+    #[staticmethod]
+    pub fn from_dict(data: &Bound<PyAny>) -> PyResult<Self> {
+        let value: Value = depythonize(data)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let blockchain = Blockchain::from_dict(&value)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+
+        Ok(PyBlockchain { inner: blockchain })
+    }
+
+    /// Get chain as list of block dicts
+    pub fn get_chain(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let py_list = PyList::empty(py);
+        for block in &self.inner.chain {
+            let py_block = block.to_dict(py)?;
+            py_list.append(py_block)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Get pending events as list
+    pub fn get_pending_events(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let py_list = PyList::empty(py);
+        for event in &self.inner.pending_events {
+            let py_event = pythonize(py, event)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            py_list.append(py_event)?;
+        }
+        Ok(py_list.into())
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "Blockchain(name={}, blocks={}, pending={})",
+            self.inner.name,
+            self.inner.chain.len(),
+            self.inner.pending_events.len()
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Blockchain(name={}, blocks={}, pending_events={}, valid={})",
+            self.inner.name,
+            self.inner.chain.len(),
+            self.inner.pending_events.len(),
+            self.inner.is_chain_valid()
+        )
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.chain.len()
+    }
+}
 
 // ==================== PyProofOfAuthority ====================
 
