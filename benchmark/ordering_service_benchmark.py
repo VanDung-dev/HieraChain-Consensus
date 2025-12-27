@@ -37,9 +37,9 @@ RustOrderingNode = None
 
 try:
     import hierachain_consensus
-    if hasattr(hierachain_consensus, "PyOrderingService"):
-        RustOrderingService = hierachain_consensus.PyOrderingService
-        RustOrderingNode = hierachain_consensus.PyOrderingNode
+    if hasattr(hierachain_consensus, "OrderingService"):
+        RustOrderingService = hierachain_consensus.OrderingService
+        RustOrderingNode = hierachain_consensus.OrderingNode
         RUST_AVAILABLE = True
 except ImportError:
     pass
@@ -132,14 +132,22 @@ def benchmark_implementation(service: Any, event_count: int) -> dict[str, Any]:
     # 2. Benchmark Block Retrieval
     start_retrieval = time.perf_counter()
     blocks_retrieved = []
+    # Poll for blocks with a timeout mechanism
+    polling_start = time.perf_counter()
     while True:
         try:
             block = service.get_next_block()
         except Exception:
             break
-        if block is None:
-            break
-        blocks_retrieved.append(block)
+            
+        if block is not None:
+            blocks_retrieved.append(block)
+        else:
+            # If no block returned, wait briefly and check timeout
+            if time.perf_counter() - polling_start > 2.0:
+                break
+            time.sleep(0.01)
+            
     retrieval_time = time.perf_counter() - start_retrieval
     
     result = {
@@ -181,26 +189,39 @@ def run_comprehensive_benchmark():
     }
 
     if PYTHON_AVAILABLE and PythonOrderingService and PythonOrderingNode:
-        py_nodes = [PythonOrderingNode(**n) for n in nodes_config]
-        python_service = PythonOrderingService(py_nodes, service_config)
-        if ensure_service_active(python_service, timeout=15.0):
-            for count in event_counts:
-                res = benchmark_implementation(python_service, count)
-                all_results.append(res)
+        for count in event_counts:
+            try:
+                # Create fresh nodes and service for EACH run
+                py_nodes = [PythonOrderingNode(**n) for n in nodes_config]
+                python_service = PythonOrderingService(py_nodes, service_config)
+                
+                if ensure_service_active(python_service, timeout=15.0):
+                    res = benchmark_implementation(python_service, count)
+                    all_results.append(res)
+                
+                # Cleanup if possible
+                if hasattr(python_service, "stop"):
+                    python_service.stop()
+            except Exception as e:
+                print(f"  ❌ Python error for {count} events: {e}")
 
     if RUST_AVAILABLE and RustOrderingService and RustOrderingNode:
-        try:
-            rust_nodes = [RustOrderingNode(**n) for n in nodes_config]
-            rust_service = RustOrderingService(rust_nodes, service_config)
-            if ensure_service_active(rust_service, timeout=15.0):
-                for count in event_counts:
+        for count in event_counts:
+            try:
+                # Create fresh nodes and service for EACH run
+                rust_nodes = [RustOrderingNode(**n) for n in nodes_config]
+                rust_service = RustOrderingService(rust_nodes, service_config)
+                
+                if ensure_service_active(rust_service, timeout=15.0):
                     res = benchmark_implementation(rust_service, count)
                     all_results.append(res)
+                
+                # Cleanup
                 if hasattr(rust_service, "stop"):
                     rust_service.stop()
-        except Exception as e:
-            print(f"  ❌ Rust initialization error: {e}")
-            all_results.append({"implementation": "Rust", "error": str(e)})
+            except Exception as e:
+                print(f"  ❌ Rust error for {count} events: {e}")
+                all_results.append({"implementation": "Rust", "event_count": count, "error": str(e)})
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(script_dir, 'output')
