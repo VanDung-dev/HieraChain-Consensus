@@ -888,8 +888,8 @@ impl PyHierarchyManager {
         if let Some(channel) = manager.get_channel(channel_id) {
             let dict = PyDict::new(py);
             dict.set_item("channel_id", &channel.channel_id)?;
-            dict.set_item("org_ids", &channel.org_ids)?;
-            dict.set_item("status", &channel.status)?;
+            dict.set_item("org_ids", channel.get_org_ids())?;
+            dict.set_item("status", channel.status.as_str())?;
             dict.set_item("created_at", channel.created_at)?;
             Ok(Some(dict.into()))
         } else {
