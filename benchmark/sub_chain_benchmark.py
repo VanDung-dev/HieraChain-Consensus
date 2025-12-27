@@ -179,23 +179,40 @@ def benchmark_get_statistics(subchain: Any, count: int) -> dict[str, Any]:
 
 
 def benchmark_finalize_block(subchain: Any, count: int) -> dict[str, Any]:
-    """Benchmark block finalization."""
+    """Benchmark block finalization (forcing block creation)."""
     times = []
     successful = 0
+    
+    # Ensure method exists
+    if not hasattr(subchain, 'flush_pending_and_finalize'):
+        print(f"Warning: {type(subchain)} has no flush_pending_and_finalize method")
+        return {
+            "operation": "finalize_block",
+            "count": count,
+            "successful": 0,
+            "time": 0,
+            "ops_per_second": 0
+        }
+
     for i in range(count):
-        for j in range(5):
+        # Add a batch of events to ensure there is something to finalize
+        for j in range(10):
             subchain.add_event({
                 "entity_id": f"entity_{j}",
-                "event": "test_event",
-                "data": {"batch": i, "item": j}
+                "event": "benchmark_event",
+                "data": {"batch": i, "item": j, "payload": "x" * 100}
             })
+            
         start = time.perf_counter()
-        result = subchain.finalize_block()
+        # Force block creation from pending events
+        result = subchain.flush_pending_and_finalize(1.0) # 1 sec timeout
         elapsed = time.perf_counter() - start
+        
         times.append(elapsed)
         if result is not None:
             successful += 1
-    total_time = sum(times) if times else 1
+            
+    total_time = sum(times) if times else 0
     return {
         "operation": "finalize_block",
         "count": count,
