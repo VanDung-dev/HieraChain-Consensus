@@ -114,9 +114,13 @@ def benchmark_message_creation(iterations: int) -> dict[str, Any]:
     results = {}
 
     # Python implementation
-    if PYTHON_AVAILABLE and PyBFTMessage:
+    if PYTHON_AVAILABLE and PyBFTMessage and PyKeyPair:
+        # Generate keypair once for signing
+        keypair = PyKeyPair.generate()
+        
         start = time.perf_counter()
         for i in range(iterations):
+            # Create message object
             msg = PyBFTMessage(
                 message_type=PyMessageType.PREPARE,
                 view=1,
@@ -125,6 +129,10 @@ def benchmark_message_creation(iterations: int) -> dict[str, Any]:
                 timestamp=time.time(),
                 signature=""
             )
+            # FORCE VALIDATION: Actually sign the message like Rust does
+            payload = msg.get_signable_payload()
+            msg.signature = keypair.sign(payload)
+            
         elapsed = time.perf_counter() - start
 
         results["python"] = {
