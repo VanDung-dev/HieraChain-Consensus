@@ -176,18 +176,15 @@ def benchmark_pof_run(impl: PoFImplementation, event_count: int, iterations: int
         for vid in create_test_validators(5):
             pof_engine.add_validator(vid)
         
-        prev_block = impl.Block(index=9, events=[], previous_hash="0"*64, 
-                                timestamp=time.time() - 15)
-        curr_block = impl.Block(index=10, events=create_test_events(10), 
-                                previous_hash="0"*64)
+        prev_block = impl.Block(index=9, events=[], previous_hash="0"*64, timestamp=time.time() - 15)
+        curr_block = impl.Block(index=10, events=create_test_events(10), previous_hash="0"*64)
         
         expected_leader = pof_engine.get_current_leader(10)
         curr_block.creator_id = expected_leader
         
         start_time = time.perf_counter()
         for _ in range(iterations):
-            test_block = impl.Block(index=10, events=create_test_events(10), 
-                                    previous_hash="0"*64)
+            test_block = impl.Block(index=10, events=create_test_events(10), previous_hash="0"*64)
             test_block.creator_id = expected_leader
             _ = pof_engine.finalize_block(test_block, expected_leader)
         finalization_time = time.perf_counter() - start_time
@@ -199,19 +196,40 @@ def benchmark_pof_run(impl: PoFImplementation, event_count: int, iterations: int
             _ = pof_engine.validate_block(finalized_block, prev_block)
         validation_time = time.perf_counter() - start_time
 
-    elif impl.name == "Rust" and rs_validate_poa:
-        validate_fn = rs_validate_poa
-        curr_block_rust = impl.Block(10, create_test_events(10), {"previous_hash": "0"*64})
+    elif impl.name == "Rust" and impl.pof_validator:
+        pof_engine = impl.pof_validator
         
-        block_data = {}
-        if hasattr(curr_block_rust, 'to_dict'):
-            block_data = curr_block_rust.to_dict()
+        # Setup validators for Rust instance
+        test_validators = create_test_validators(5)
+        for vid in test_validators:
+            pof_engine.add_validator(vid)
             
-        auth_id = "validator_A"
+        expected_leader = pof_engine.get_current_leader(10)
         
+        # Prepare blocks for benchmarks
+        # Create lightweight block objects/dicts for Rust
+        prev_block_rust = impl.Block(9, [], {"previous_hash": "0"*64}).to_dict()
+        
+        # For finalization bench
+        start_time = time.perf_counter()
+        for i in range(iterations):
+            temp_block = impl.Block(10, create_test_events(10), {"previous_hash": "0"*64})
+            temp_block.creator_id = expected_leader
+            temp_block_dict = temp_block.to_dict()
+            
+            _ = pof_engine.finalize_block(temp_block_dict)
+        finalization_time = time.perf_counter() - start_time
+
+        # For validation bench
+        # First create a valid finalized block
+        valid_block = impl.Block(10, create_test_events(10), {"previous_hash": "0"*64})
+        valid_block.creator_id = expected_leader
+        valid_block_dict = valid_block.to_dict()
+        finalized_block_dict = pof_engine.finalize_block(valid_block_dict)
+
         start_time = time.perf_counter()
         for _ in range(iterations):
-            _ = validate_fn(block_data, auth_id)
+            _ = pof_engine.validate_block(finalized_block_dict, prev_block_rust)
         validation_time = time.perf_counter() - start_time
 
     return {
