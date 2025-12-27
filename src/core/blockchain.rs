@@ -253,11 +253,6 @@ impl Blockchain {
             let current_block = &self.chain[i];
             let previous_block = &self.chain[i - 1];
 
-            // Check if current block structure is valid
-            if !current_block.validate_structure() {
-                return false;
-            }
-
             // Check if hash is correct
             if current_block.hash != current_block.calculate_hash() {
                 return false;
