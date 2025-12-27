@@ -184,6 +184,45 @@ def benchmark_get_stats(main_chain: Any) -> dict[str, Any]:
     }
 
 
+def benchmark_get_proofs_by_sub_chain(main_chain: Any, sub_chain_name: str) -> dict[str, Any]:
+    """Benchmark getting all proofs for a sub-chain."""
+    # Ensure there are proofs first
+    main_chain.register_sub_chain(sub_chain_name, {"domain": "test"})
+    for i in range(50):
+        main_chain.add_proof(sub_chain_name, f"proof_{i}", {"index": i})
+    main_chain.finalize_block()
+    
+    start = time.perf_counter()
+    count = 100
+    for _ in range(count):
+        proofs = main_chain.get_proofs_by_sub_chain(sub_chain_name)
+    elapsed = time.perf_counter() - start
+    
+    return {
+        "operation": "get_proofs_by_sub_chain",
+        "count": count,
+        "proofs_found": len(proofs) if hasattr(proofs, '__len__') else 0,
+        "time": elapsed,
+        "ops_per_second": count / elapsed if elapsed > 0 else 0
+    }
+
+
+def benchmark_get_sub_chain_summary(main_chain: Any, sub_chain_name: str) -> dict[str, Any]:
+    """Benchmark getting sub-chain summary."""
+    start = time.perf_counter()
+    count = 100
+    for _ in range(count):
+        summary = main_chain.get_sub_chain_summary(sub_chain_name)
+    elapsed = time.perf_counter() - start
+    
+    return {
+        "operation": "get_sub_chain_summary",
+        "count": count,
+        "time": elapsed,
+        "ops_per_second": count / elapsed if elapsed > 0 else 0
+    }
+
+
 def create_main_chain(main_chain_class: Any, name: str, consensus_type: str = "proof_of_authority") -> Any:
     """Create a MainChain instance with the specified consensus type.
     
@@ -263,6 +302,20 @@ def run_single_benchmark(main_chain_class: Any, impl_name: str, consensus_type: 
         result = benchmark_get_stats(main_chain)
         results["benchmarks"].append(result)
         print(f"   ✅ {result['time']*1000:.4f}ms")
+
+        # 7. Get proofs by sub-chain (New)
+        if hasattr(main_chain, "get_proofs_by_sub_chain"):
+            print(f"\n🔍 Testing get_proofs_by_sub_chain...")
+            result = benchmark_get_proofs_by_sub_chain(main_chain, "SubChainProofsTest")
+            results["benchmarks"].append(result)
+            print(f"   ✅ {result['ops_per_second']:.2f} ops/s")
+        
+        # 8. Get sub-chain summary (New)
+        if hasattr(main_chain, "get_sub_chain_summary"):
+            print(f"\n📋 Testing get_sub_chain_summary...")
+            result = benchmark_get_sub_chain_summary(main_chain, "SubChainSummaryTest")
+            results["benchmarks"].append(result)
+            print(f"   ✅ {result['ops_per_second']:.2f} ops/s")
         
     except Exception as e:
         print(f"   ❌ Error: {e}")
@@ -358,7 +411,8 @@ def print_summary(all_results: list[dict[str, Any]]) -> None:
             continue
         
         operations = ["register_sub_chain", "add_proof", "verify_proof", "finalize_block", 
-                      "get_hierarchical_integrity_report", "get_main_chain_stats"]
+                      "get_hierarchical_integrity_report", "get_main_chain_stats",
+                      "get_proofs_by_sub_chain", "get_sub_chain_summary"]
         
         for op in operations:
             py_bench = None
