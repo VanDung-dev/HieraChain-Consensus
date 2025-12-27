@@ -699,6 +699,29 @@ impl MainChain {
             false
         }
     }
+
+    /// Validate a new block including consensus rules.
+    ///
+    /// # Arguments
+    /// * `block` - Block to validate
+    ///
+    /// # Returns
+    /// True if block is valid
+    pub fn is_valid_new_block(&self, block: &Block) -> bool {
+        let previous_block = self.blockchain.get_latest_block();
+
+        // Check basic block validity
+        if block.index != previous_block.index + 1 {
+            return false;
+        }
+
+        if block.previous_hash != previous_block.hash {
+            return false;
+        }
+
+        // Check consensus rules
+        self.consensus.validate_block(block, previous_block)
+    }
 }
 
 impl std::fmt::Display for MainChain {
