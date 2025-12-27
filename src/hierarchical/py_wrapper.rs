@@ -650,6 +650,28 @@ impl PySubChain {
         }
     }
 
+    /// Flush pending events and finalize them into a block with timeout.
+    #[pyo3(signature = (timeout_seconds = 3.0))]
+    pub fn flush_pending_and_finalize(
+        &self,
+        py: Python,
+        timeout_seconds: f64,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        match inner.flush_pending_and_finalize(timeout_seconds) {
+            Some(result) => {
+                let py_result = pythonize(py, &result)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                Ok(Some(py_result.unbind()))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Stop the Sub-Chain
     pub fn stop(&self) -> PyResult<()> {
         let inner = self
