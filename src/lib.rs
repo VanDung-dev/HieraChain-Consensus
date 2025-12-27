@@ -761,6 +761,7 @@ fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyOrderingService>()?;
     m.add_class::<crate::core::block::Block>()?;
     m.add_class::<crate::core::blockchain::PyBlockchain>()?;
+    m.add_class::<crate::hierarchical::main_chain::PyMainChain>()?;
     m.add_class::<PyProofOfFederation>()?;
 
     // Add BFT consensus classes
