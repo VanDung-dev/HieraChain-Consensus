@@ -170,7 +170,6 @@ impl PrivateCollection {
         // Serialize and "Encrypt"
         let value_str = value.to_string();
         // Placeholder encryption: just bytes of string
-        // TODO: Implement actual encryption using a crate like aes-gcm
         let encrypted_value = value_str.as_bytes().to_vec();
 
         // Calculate hash
