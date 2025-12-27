@@ -8,6 +8,7 @@ pub mod consensus;
 pub mod hierarchy_manager;
 pub mod main_chain;
 pub mod multi_org;
+pub mod private_data;
 pub mod py_wrapper;
 pub mod sub_chain;
 
