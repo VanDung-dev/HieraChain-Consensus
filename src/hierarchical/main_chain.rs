@@ -12,7 +12,7 @@ use crate::core::consensus::proof_of_federation::ProofOfFederation;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pythonize::{depythonize, pythonize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -655,6 +655,49 @@ impl MainChain {
     /// Check if authority
     pub fn is_authority(&self, authority_id: &str) -> bool {
         self.consensus.is_authority(authority_id)
+    }
+
+    /// Submit proof from a Sub-Chain.
+    ///
+    /// This method receives cryptographic proofs from Sub-Chains and stores them
+    /// as events on the Main Chain.
+    ///
+    /// # Arguments
+    /// * `sub_chain_name` - Name of the Sub-Chain submitting the proof
+    /// * `metadata` - Proof metadata (summary data only)
+    ///
+    /// # Returns
+    /// True if proof was accepted and stored
+    pub fn submit_proof(&mut self, sub_chain_name: &str, metadata: Value) -> bool {
+        // Check if sub-chain is registered
+        if !self
+            .registered_sub_chains
+            .contains(&sub_chain_name.to_string())
+        {
+            // Auto-register if not present (for ease of use)
+            self.register_sub_chain(sub_chain_name, None);
+        }
+
+        // Create proof event
+        let proof_event = json!({
+            "entity_id": sub_chain_name,
+            "event": "proof_submission",
+            "timestamp": current_timestamp(),
+            "details": {
+                "sub_chain_name": sub_chain_name,
+                "proof_metadata": metadata,
+                "received_at": current_timestamp(),
+                "proof_index": self.proof_count + 1
+            }
+        });
+
+        // Add event and try to finalize block
+        if self.blockchain.add_event(proof_event).is_ok() {
+            self.proof_count += 1;
+            true
+        } else {
+            false
+        }
     }
 }
 
