@@ -446,6 +446,35 @@ impl PyProofOfFederation {
         self.inner.can_create_block(authority_id)
     }
 
+    /// Validate a block against the previous block.
+    fn validate_block(
+        &self,
+        block: &Bound<PyAny>,
+        previous_block: &Bound<PyAny>,
+    ) -> PyResult<bool> {
+        let rust_block: Block = depythonize(block)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let rust_prev_block: Block = depythonize(previous_block)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        Ok(self.inner.validate_block(&rust_block, &rust_prev_block))
+    }
+
+    /// Finalize a block by signing it.
+    /// Returns the finalized block dict if successful.
+    fn finalize_block(&mut self, block: &Bound<PyAny>, py: Python) -> PyResult<Py<PyAny>> {
+        let mut rust_block: Block = depythonize(block)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        if self.inner.finalize_block(&mut rust_block) {
+            rust_block.to_dict(py)
+        } else {
+            Err(pyo3::exceptions::PyValueError::new_err(
+                "Failed to finalize block",
+            ))
+        }
+    }
+
     /// Estimate the time required to create a new block.
     fn estimate_block_time(&self) -> f64 {
         self.inner.estimate_block_time()
