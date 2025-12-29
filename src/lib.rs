@@ -12,6 +12,7 @@ use serde_json::Value;
 pub mod consensus;
 pub mod core;
 pub mod error_mitigation;
+pub mod ffi;
 pub mod hierarchical;
 pub mod security;
 pub mod utils;
