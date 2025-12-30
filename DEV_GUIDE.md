@@ -37,9 +37,8 @@ To compile the Rust code and install it as a Python package in your current envi
 - **Build**:
 
     ```bash
-    maturin develop
+    maturin develop --release
     ```
-
 
 ---
 
