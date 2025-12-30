@@ -11,7 +11,7 @@
 
 HieraChain Consensus là một thư viện đồng thuận blockchain hiệu năng cao dựa trên nền tảng Rust, được thiết kế cho các ứng dụng blockchain doanh nghiệp và liên hợp (consortium). Thư viện cung cấp nhiều cơ chế đồng thuận, bảo mật mật mã, giảm thiểu lỗi và tích hợp liền mạch với Python thông qua các binding PyO3.
 
-Kho lưu trữ này chứa thành phần đồng thuận của hệ sinh thái HieraChain.
+**Đây là triển khai Core Consensus chính thức của hệ sinh thái HieraChain.** Mặc dù HieraChain (Python) cũng bao gồm triển khai consensus riêng, phiên bản Rust này là lựa chọn được khuyến nghị cho các triển khai production nhờ vào hiệu năng vượt trội, an toàn bộ nhớ và khả năng truyền dữ liệu zero-copy.
 
 ## Tính năng
 
@@ -116,13 +116,15 @@ HieraChain Consensus được xây dựng với kiến trúc mô-đun phân tác
 
 ## Dự Án Liên Quan
 
-Kho lưu trữ này là một phần của hệ sinh thái HieraChain:
+**HieraChain Consensus** là Core Consensus chính thức của hệ sinh thái HieraChain:
 
 | Dự án | Ngôn ngữ | Mô tả |
 |-------|----------|-------|
-| [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Framework blockchain phân cấp chính với đầy đủ tính năng |
+| [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Framework blockchain phân cấp chính (bao gồm consensus thuần Python) |
 | [HieraChain-Engine](https://github.com/VanDung-dev/HieraChain-Engine) | Go | Blockchain engine hiệu năng cao với mạng lưới P2P |
-| **HieraChain-Consensus** (repo này) | Rust | Thuật toán đồng thuận với binding Python/C |
+| **HieraChain-Consensus** (repo này) | Rust | **Core Consensus chính thức** - triển khai tối ưu với binding Python/C |
+
+> 💡 **Tại sao Rust?** Mặc dù HieraChain Python cũng bao gồm các thuật toán consensus, phiên bản Rust này mang lại hiệu năng tốt hơn cho các thao tác consensus quan trọng, đảm bảo an toàn bộ nhớ và tích hợp liền mạch qua PyO3 bindings.
 
 ## Giấy phép
 
