@@ -11,7 +11,7 @@
 
 HieraChain Consensus is a high-performance, Rust-based blockchain consensus library designed for enterprise and consortium blockchain applications. It provides multiple consensus mechanisms, cryptographic security, error mitigation, and seamless Python integration through PyO3 bindings.
 
-This repository contains the consensus component of [HieraChain](https://github.com/VanDung-dev/HieraChain).
+This repository contains the consensus component of the HieraChain ecosystem.
 
 ## Features
 
@@ -113,6 +113,16 @@ HieraChain Consensus is built with a modular architecture that separates concern
 - **Batch Operations**: Reduce FFI overhead by up to 10x
 - **Async I/O**: Tokio runtime for efficient concurrent operations
 - **Optimized Merkle Trees**: Efficient tree construction and verification
+
+## Related Projects
+
+This repository is part of the HieraChain ecosystem:
+
+| Project | Language | Description |
+|---------|----------|-------------|
+| [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Main hierarchical blockchain framework with full features |
+| [HieraChain-Engine](https://github.com/VanDung-dev/HieraChain-Engine) | Go | High-performance blockchain engine with P2P networking |
+| **HieraChain-Consensus** (this repo) | Rust | Consensus algorithms with Python/C bindings |
 
 ## License
 

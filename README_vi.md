@@ -11,7 +11,7 @@
 
 HieraChain Consensus là một thư viện đồng thuận blockchain hiệu năng cao dựa trên nền tảng Rust, được thiết kế cho các ứng dụng blockchain doanh nghiệp và liên hợp (consortium). Thư viện cung cấp nhiều cơ chế đồng thuận, bảo mật mật mã, giảm thiểu lỗi và tích hợp liền mạch với Python thông qua các binding PyO3.
 
-Kho lưu trữ này chứa thành phần đồng thuận của [HieraChain](https://github.com/VanDung-dev/HieraChain).
+Kho lưu trữ này chứa thành phần đồng thuận của hệ sinh thái HieraChain.
 
 ## Tính năng
 
@@ -113,6 +113,16 @@ HieraChain Consensus được xây dựng với kiến trúc mô-đun phân tác
 - **Thao tác Batch**: Giảm chi phí FFI lên đến 10 lần.
 - **Async I/O**: Runtime Tokio cho các hoạt động đồng thời hiệu quả.
 - **Cây Merkle tối ưu hóa**: Xây dựng và xác minh cây hiệu quả.
+
+## Dự Án Liên Quan
+
+Kho lưu trữ này là một phần của hệ sinh thái HieraChain:
+
+| Dự án | Ngôn ngữ | Mô tả |
+|-------|----------|-------|
+| [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Framework blockchain phân cấp chính với đầy đủ tính năng |
+| [HieraChain-Engine](https://github.com/VanDung-dev/HieraChain-Engine) | Go | Blockchain engine hiệu năng cao với mạng lưới P2P |
+| **HieraChain-Consensus** (repo này) | Rust | Thuật toán đồng thuận với binding Python/C |
 
 ## Giấy phép
 
