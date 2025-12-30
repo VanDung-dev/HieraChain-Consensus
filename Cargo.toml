@@ -10,7 +10,7 @@ license = "Apache-2.0 OR MIT"
 
 [lib]
 name = "hierachain_consensus"
-path = "src/lib.rs"
+path = "hierachain-consensus/lib.rs"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
