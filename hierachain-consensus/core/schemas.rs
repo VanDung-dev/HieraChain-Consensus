@@ -3,6 +3,7 @@
 //! This module defines the Apache Arrow schemas used for:
 //! - Events: Domain-specific actions
 //! - Blocks: Groups of events (Header + Event List)
+//! - Transactions: Standardized transport format
 
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
@@ -92,6 +93,37 @@ pub fn get_block_schema() -> Schema {
                 DataType::Struct(event_struct_fields.into()),
                 true,
             ))),
+            true,
+        ),
+    ])
+}
+
+/// Return the Arrow schema for a Transaction.
+/// Defines consistency across Rust, Go, and Python.
+pub fn get_transaction_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("tx_id", DataType::Utf8, false), // Mandatory
+        Field::new("entity_id", DataType::Utf8, false), // Mandatory
+        Field::new("event_type", DataType::Utf8, false), // Mandatory
+        Field::new("arrow_payload", DataType::Binary, true),
+        Field::new("signature", DataType::Utf8, true),
+        Field::new("timestamp", DataType::Float64, false), // Mandatory
+        Field::new(
+            "details",
+            DataType::Map(
+                Arc::new(Field::new(
+                    "entries",
+                    DataType::Struct(
+                        vec![
+                            Field::new("key", DataType::Utf8, false),
+                            Field::new("value", DataType::Utf8, true),
+                        ]
+                        .into(),
+                    ),
+                    false,
+                )),
+                false,
+            ),
             true,
         ),
     ])
