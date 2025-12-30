@@ -1,6 +1,6 @@
 [package]
 name = "hierachain-consensus"
-version = "0.0.0-dev6"
+version = "0.0.1-dev1"
 edition = "2021"
 authors = ["Nguyễn Lê Văn Dũng <dungnguyen2661@gmail.com>"]
 description = "HieraChain Consensus is a Rust-based blockchain consensus library."
