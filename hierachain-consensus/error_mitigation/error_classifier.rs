@@ -5,6 +5,13 @@
 use crate::error_mitigation::types::{ErrorCategory, ImpactLevel, LikelihoodLevel, PriorityLevel};
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// Maximum number of unique errors to track to prevent DoS
+const MAX_ERROR_HISTORY: usize = 1000;
+
+/// Static patterns to avoid recompilation
+static PATTERNS: OnceLock<Vec<ClassificationPattern>> = OnceLock::new();
 
 /// Error information with classification
 #[derive(Debug, Clone)]
@@ -83,8 +90,6 @@ struct ClassificationPattern {
 pub struct ErrorClassifier {
     /// Risk matrix for priority calculation
     risk_matrix: RiskPriorityMatrix,
-    /// Classification patterns
-    patterns: Vec<ClassificationPattern>,
     /// Error history for tracking recurring issues
     error_counts: HashMap<String, u32>,
 }
@@ -92,85 +97,104 @@ pub struct ErrorClassifier {
 impl ErrorClassifier {
     /// Create a new error classifier with default patterns
     pub fn new() -> Self {
-        let patterns = vec![
-            // Consensus errors
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)consensus|quorum|vote|agreement").unwrap(),
-                category: ErrorCategory::Consensus,
-                impact: ImpactLevel::Major,
-                likelihood: LikelihoodLevel::Possible,
-                mitigation: "Initiate view change or request re-sync".to_string(),
-            },
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)byzantine|malicious|invalid.*signature").unwrap(),
-                category: ErrorCategory::Consensus,
-                impact: ImpactLevel::Catastrophic,
-                likelihood: LikelihoodLevel::Unlikely,
-                mitigation: "Quarantine node and alert administrators".to_string(),
-            },
-            // Network errors
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)timeout|connection.*refused|network.*unreachable")
-                    .unwrap(),
-                category: ErrorCategory::Network,
-                impact: ImpactLevel::Moderate,
-                likelihood: LikelihoodLevel::Likely,
-                mitigation: "Retry with exponential backoff".to_string(),
-            },
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)peer.*disconnect|node.*down|unreachable").unwrap(),
-                category: ErrorCategory::Network,
-                impact: ImpactLevel::Moderate,
-                likelihood: LikelihoodLevel::Possible,
-                mitigation: "Attempt reconnection or use alternative peer".to_string(),
-            },
-            // Cryptographic errors
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)signature.*invalid|verification.*failed|crypto").unwrap(),
-                category: ErrorCategory::Cryptographic,
-                impact: ImpactLevel::Major,
-                likelihood: LikelihoodLevel::Unlikely,
-                mitigation: "Reject message and log incident".to_string(),
-            },
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)key.*not.*found|missing.*key|keypair").unwrap(),
-                category: ErrorCategory::Cryptographic,
-                impact: ImpactLevel::Major,
-                likelihood: LikelihoodLevel::Rare,
-                mitigation: "Check key configuration and regenerate if needed".to_string(),
-            },
-            // Validation errors
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)invalid.*message|malformed|parse.*error").unwrap(),
-                category: ErrorCategory::Validation,
-                impact: ImpactLevel::Minor,
-                likelihood: LikelihoodLevel::Possible,
-                mitigation: "Log and discard invalid message".to_string(),
-            },
-            // Resource errors
-            ClassificationPattern {
-                pattern: Regex::new(r"(?i)out.*of.*memory|disk.*full|resource.*exhausted").unwrap(),
-                category: ErrorCategory::Resource,
-                impact: ImpactLevel::Major,
-                likelihood: LikelihoodLevel::Unlikely,
-                mitigation: "Free resources or scale infrastructure".to_string(),
-            },
-        ];
+        // Initialize patterns once
+        PATTERNS.get_or_init(|| {
+            vec![
+                // Consensus errors
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)consensus|quorum|vote|agreement").unwrap(),
+                    category: ErrorCategory::Consensus,
+                    impact: ImpactLevel::Major,
+                    likelihood: LikelihoodLevel::Possible,
+                    mitigation: "Initiate view change or request re-sync".to_string(),
+                },
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)byzantine|malicious|invalid.*signature").unwrap(),
+                    category: ErrorCategory::Consensus,
+                    impact: ImpactLevel::Catastrophic,
+                    likelihood: LikelihoodLevel::Unlikely,
+                    mitigation: "Quarantine node and alert administrators".to_string(),
+                },
+                // Network errors
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)timeout|connection.*refused|network.*unreachable")
+                        .unwrap(),
+                    category: ErrorCategory::Network,
+                    impact: ImpactLevel::Moderate,
+                    likelihood: LikelihoodLevel::Likely,
+                    mitigation: "Retry with exponential backoff".to_string(),
+                },
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)peer.*disconnect|node.*down|unreachable").unwrap(),
+                    category: ErrorCategory::Network,
+                    impact: ImpactLevel::Moderate,
+                    likelihood: LikelihoodLevel::Possible,
+                    mitigation: "Attempt reconnection or use alternative peer".to_string(),
+                },
+                // Cryptographic errors
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)signature.*invalid|verification.*failed|crypto").unwrap(),
+                    category: ErrorCategory::Cryptographic,
+                    impact: ImpactLevel::Major,
+                    likelihood: LikelihoodLevel::Unlikely,
+                    mitigation: "Reject message and log incident".to_string(),
+                },
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)key.*not.*found|missing.*key|keypair").unwrap(),
+                    category: ErrorCategory::Cryptographic,
+                    impact: ImpactLevel::Major,
+                    likelihood: LikelihoodLevel::Rare,
+                    mitigation: "Check key configuration and regenerate if needed".to_string(),
+                },
+                // Validation errors
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)invalid.*message|malformed|parse.*error").unwrap(),
+                    category: ErrorCategory::Validation,
+                    impact: ImpactLevel::Minor,
+                    likelihood: LikelihoodLevel::Possible,
+                    mitigation: "Log and discard invalid message".to_string(),
+                },
+                // Resource errors
+                ClassificationPattern {
+                    pattern: Regex::new(r"(?i)out.*of.*memory|disk.*full|resource.*exhausted").unwrap(),
+                    category: ErrorCategory::Resource,
+                    impact: ImpactLevel::Major,
+                    likelihood: LikelihoodLevel::Unlikely,
+                    mitigation: "Free resources or scale infrastructure".to_string(),
+                },
+            ]
+        });
 
         Self {
             risk_matrix: RiskPriorityMatrix::new(),
-            patterns,
             error_counts: HashMap::new(),
         }
     }
 
+    /// Sanitize error message to remove sensitive info
+    fn sanitize_message(message: &str) -> String {
+        // Regex to mask Hex strings (keys, hashes) > 20 chars
+        // Using lazy_static equivalent logic here for performance if possible, but for now simple replacement
+        let re_hex = Regex::new(r"(0x)?[a-fA-F0-9]{20,}").unwrap();
+        let re_ip = Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b").unwrap();
+
+        let masked = re_hex.replace_all(message, "[REDACTED_HEX]");
+        let masked = re_ip.replace_all(&masked, "[REDACTED_IP]");
+        masked.to_string()
+    }
+
     /// Classify an error message
     pub fn classify(&mut self, error_message: &str) -> ErrorInfo {
+        // Sanitize first
+        let clean_message = Self::sanitize_message(error_message);
+
+        // Get shared patterns
+        let patterns = PATTERNS.get().unwrap();
+
         // Find matching pattern
-        let (category, impact, likelihood, mitigation) = self
-            .patterns
+        let (category, impact, likelihood, mitigation) = patterns
             .iter()
-            .find(|p| p.pattern.is_match(error_message))
+            .find(|p| p.pattern.is_match(&clean_message))
             .map(|p| (p.category, p.impact, p.likelihood, p.mitigation.clone()))
             .unwrap_or((
                 ErrorCategory::Unknown,
@@ -179,11 +203,16 @@ impl ErrorClassifier {
                 "Investigate and handle manually".to_string(),
             ));
 
-        // Track error occurrence
-        let count = self
-            .error_counts
-            .entry(error_message.to_string())
-            .or_insert(0);
+        // Track error occurrence with limit check
+        if self.error_counts.len() >= MAX_ERROR_HISTORY
+            && !self.error_counts.contains_key(&clean_message)
+        {
+            if self.error_counts.len() >= MAX_ERROR_HISTORY {
+                self.error_counts.clear(); // Drastic but safe against DoS
+            }
+        }
+
+        let count = self.error_counts.entry(clean_message.clone()).or_insert(0);
         *count += 1;
 
         // Adjust likelihood based on recurrence
@@ -199,7 +228,7 @@ impl ErrorClassifier {
         let priority = self.risk_matrix.get_priority(impact, adjusted_likelihood);
 
         ErrorInfo {
-            message: error_message.to_string(),
+            message: clean_message,
             category,
             priority,
             impact,
@@ -210,7 +239,8 @@ impl ErrorClassifier {
 
     /// Get error count for a specific message
     pub fn get_error_count(&self, error_message: &str) -> u32 {
-        self.error_counts.get(error_message).copied().unwrap_or(0)
+        let clean_message = Self::sanitize_message(error_message);
+        self.error_counts.get(&clean_message).copied().unwrap_or(0)
     }
 
     /// Clear error history
@@ -221,10 +251,10 @@ impl ErrorClassifier {
     /// Get summary of all tracked errors
     pub fn get_summary(&self) -> HashMap<ErrorCategory, u32> {
         let mut summary: HashMap<ErrorCategory, u32> = HashMap::new();
+        let patterns = PATTERNS.get().unwrap();
 
         for (msg, count) in &self.error_counts {
-            let category = self
-                .patterns
+            let category = patterns
                 .iter()
                 .find(|p| p.pattern.is_match(msg))
                 .map(|p| p.category)
