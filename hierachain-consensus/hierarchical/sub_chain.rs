@@ -189,19 +189,38 @@ pub struct SubChain {
 }
 
 impl SubChain {
-    /// Create a new Sub-Chain.
+    /// Create a new Sub-Chain with validation.
     ///
     /// # Arguments
-    /// * `name` - Name identifier for the Sub-Chain
+    /// * `name` - Name identifier for the Sub-Chain (alphanumeric, underscore, hyphen only)
     /// * `domain_type` - Type of domain this Sub-Chain handles
     /// * `consensus_type` - Type of consensus (PoA or PoF)
-    pub fn new(name: &str, domain_type: &str, consensus_type: ConsensusType) -> Self {
-        // Validate name
+    ///
+    /// # Returns
+    /// * `Result<Self, String>` - SubChain instance or error message
+    ///
+    /// # Example
+    /// ```
+    /// let chain = SubChain::try_new("my_chain", "supply_chain", ConsensusType::ProofOfAuthority)?;
+    /// ```
+    pub fn try_new(
+        name: &str,
+        domain_type: &str,
+        consensus_type: ConsensusType,
+    ) -> Result<Self, String> {
+        // Validate name - must be non-empty and contain only allowed characters
+        if name.is_empty() {
+            return Err("SubChain name cannot be empty".to_string());
+        }
+
         if !name
             .chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
         {
-            panic!("Invalid SubChain name. Allowed: alphanumeric, underscore, hyphen.");
+            return Err(format!(
+                "Invalid SubChain name '{}'. Allowed characters: alphanumeric, underscore, hyphen.",
+                name
+            ));
         }
 
         let mut consensus = ConsensusWrapper::new(consensus_type, name);
@@ -246,7 +265,7 @@ impl SubChain {
         // Start ordering service
         OrderingService::start(ordering_service.clone(), receiver);
 
-        SubChain {
+        Ok(SubChain {
             blockchain: Blockchain::new(name),
             domain_type: domain_type.to_string(),
             consensus,
@@ -260,7 +279,35 @@ impl SubChain {
             running: Arc::new(RwLock::new(true)),
             pending_events: Arc::new(RwLock::new(Vec::new())),
             block_queue: Arc::new(Mutex::new(Vec::new())),
-        }
+        })
+    }
+
+    /// Create a new Sub-Chain (panics on invalid name).
+    ///
+    /// # Arguments
+    /// * `name` - Name identifier for the Sub-Chain
+    /// * `domain_type` - Type of domain this Sub-Chain handles
+    /// * `consensus_type` - Type of consensus (PoA or PoF)
+    ///
+    /// # Panics
+    /// Panics if the name contains invalid characters. Use `try_new()` for fallible creation.
+    pub fn new(name: &str, domain_type: &str, consensus_type: ConsensusType) -> Self {
+        Self::try_new(name, domain_type, consensus_type)
+            .expect("Invalid SubChain name. Use try_new() for error handling.")
+    }
+
+    /// Validate a SubChain name without creating an instance.
+    ///
+    /// # Arguments
+    /// * `name` - Name to validate
+    ///
+    /// # Returns
+    /// * `bool` - True if the name is valid
+    pub fn is_valid_name(name: &str) -> bool {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     }
 
     /// Get chain name
