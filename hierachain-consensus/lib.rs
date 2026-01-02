@@ -27,7 +27,7 @@ use crate::security::{py_verify_signature, PyKeyPair};
 
 /// Convert Python dict to serde_json::Value
 fn dict_to_json(dict: &Bound<PyDict>) -> PyResult<Value> {
-    crate::utils::pyo3_helpers::dict_to_json(dict)
+    utils::pyo3_helpers::dict_to_json(dict)
 }
 
 // ==================== PyO3 Functions ====================
@@ -67,7 +67,7 @@ fn batch_create_blocks(
     events_list: &Bound<PyList>,
     start_index: u64,
     previous_hash: &str,
-) -> PyResult<Vec<Py<crate::core::block::Block>>> {
+) -> PyResult<Vec<Py<Block>>> {
     let mut blocks = Vec::with_capacity(events_list.len());
     let mut prev_hash = previous_hash.to_string();
 
@@ -75,7 +75,7 @@ fn batch_create_blocks(
         let kwargs = PyDict::new(py);
         kwargs.set_item("previous_hash", &prev_hash)?;
 
-        let block = crate::core::block::Block::new(
+        let block = Block::new(
             start_index + i as u64,
             &events,
             Some(&kwargs.as_borrowed()),
@@ -129,6 +129,9 @@ fn calculate_merkle_root(events: &Bound<PyList>) -> PyResult<String> {
 /// Python module
 #[pymodule]
 fn hierachain_consensus(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    // Add module metadata
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     // Add consensus functions
     m.add_function(wrap_pyfunction!(validate_poa_block, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_block_hash, m)?)?;
