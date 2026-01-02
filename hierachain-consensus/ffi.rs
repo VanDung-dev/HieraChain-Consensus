@@ -3,7 +3,7 @@
 //! This module provides C-compatible functions that can be called from Go via CGO.
 //! All functions use C strings and raw pointers for cross-language compatibility.
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::slice;
 
@@ -210,6 +210,7 @@ pub unsafe extern "C" fn ffi_get_version(result: *mut c_char, result_len: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn test_merkle_root() {
