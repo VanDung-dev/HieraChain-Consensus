@@ -10,7 +10,7 @@ use crate::core::consensus::base_consensus::BaseConsensusTrait;
 use crate::core::utils::{validate_event_structure, validate_no_cryptocurrency_terms};
 use serde_json::{Map, Value};
 use sha2::Digest;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Proof of Federation (PoF) Consensus.
@@ -21,12 +21,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// - Rotating Leader: Authorities take turns creating blocks based on block height.
 /// - Deterministic Schedule: Leader = (BlockHeight) % (TotalAuthorities).
 /// - Fault Tolerance: If a leader misses their turn, the protocol can skip to the next.
+/// - Quorum Requirement: Blocks require endorsement from a quorum of validators.
 pub struct ProofOfFederation {
     pub name: String,
     /// Ordered list of validator IDs (sorted for deterministic order across nodes).
     pub validators: Vec<String>,
     /// Metadata for each validator (e.g., organization info).
     pub validator_metadata: HashMap<String, Map<String, Value>>,
+    /// Public keys for validators (validator_id -> public_key_hex)
+    pub validator_public_keys: HashMap<String, String>,
+    /// Endorsements for pending blocks (block_hash -> set of validator IDs)
+    pub pending_endorsements: HashMap<String, HashSet<String>>,
     /// Configuration settings (JSON-based, matching Python style).
     pub config: Map<String, Value>,
 }
@@ -38,11 +43,18 @@ impl ProofOfFederation {
         config.insert("block_interval".to_string(), Value::from(5.0));
         config.insert("min_validators".to_string(), Value::from(3));
         config.insert("enforce_rotation".to_string(), Value::Bool(true));
+        // New: Enable quorum requirement for finalization (2/3 majority)
+        config.insert("require_quorum".to_string(), Value::Bool(true));
+        // Quorum fraction (numerator/denominator) - default 2/3
+        config.insert("quorum_numerator".to_string(), Value::from(2));
+        config.insert("quorum_denominator".to_string(), Value::from(3));
 
         ProofOfFederation {
             name: name.to_string(),
             validators: Vec::new(),
             validator_metadata: HashMap::new(),
+            validator_public_keys: HashMap::new(),
+            pending_endorsements: HashMap::new(),
             config,
         }
     }
@@ -58,6 +70,21 @@ impl ProofOfFederation {
         validator_id: String,
         metadata: Option<Map<String, Value>>,
     ) -> bool {
+        self.add_validator_with_key(validator_id, metadata, None)
+    }
+
+    /// Add a validator with a public key for signature verification.
+    ///
+    /// # Arguments
+    /// * `validator_id` - Unique identifier for the validator
+    /// * `metadata` - Optional metadata for the validator
+    /// * `public_key_hex` - Optional Ed25519 public key in hex format
+    pub fn add_validator_with_key(
+        &mut self,
+        validator_id: String,
+        metadata: Option<Map<String, Value>>,
+        public_key_hex: Option<String>,
+    ) -> bool {
         if self.validators.contains(&validator_id) {
             return false;
         }
@@ -67,7 +94,12 @@ impl ProofOfFederation {
         self.validators.sort();
 
         self.validator_metadata
-            .insert(validator_id, metadata.unwrap_or_default());
+            .insert(validator_id.clone(), metadata.unwrap_or_default());
+
+        // Store public key if provided
+        if let Some(pk) = public_key_hex {
+            self.validator_public_keys.insert(validator_id, pk);
+        }
         true
     }
 
@@ -76,9 +108,83 @@ impl ProofOfFederation {
         if let Some(pos) = self.validators.iter().position(|x| x == validator_id) {
             self.validators.remove(pos);
             self.validator_metadata.remove(validator_id);
+            self.validator_public_keys.remove(validator_id);
             return true;
         }
         false
+    }
+
+    /// Calculate the required quorum size based on configuration.
+    ///
+    /// Default: 2/3 of validators + 1 (for strict majority)
+    pub fn required_quorum(&self) -> usize {
+        let total = self.validators.len();
+        let numerator = self
+            .config
+            .get("quorum_numerator")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2) as usize;
+        let denominator = self
+            .config
+            .get("quorum_denominator")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3) as usize;
+
+        if denominator == 0 {
+            return total;
+        }
+
+        // Calculate ceiling of (total * numerator / denominator)
+        (total * numerator + denominator - 1) / denominator
+    }
+
+    /// Check if a block has reached quorum with endorsements.
+    ///
+    /// # Arguments
+    /// * `block_hash` - Hash of the block to check
+    ///
+    /// # Returns
+    /// * `true` if quorum is reached, `false` otherwise
+    pub fn has_quorum(&self, block_hash: &str) -> bool {
+        let required = self.required_quorum();
+        match self.pending_endorsements.get(block_hash) {
+            Some(endorsers) => endorsers.len() >= required,
+            None => false,
+        }
+    }
+
+    /// Add an endorsement from a validator for a block.
+    ///
+    /// # Arguments
+    /// * `block_hash` - Hash of the block being endorsed
+    /// * `validator_id` - ID of the endorsing validator
+    ///
+    /// # Returns
+    /// * `true` if endorsement was added, `false` if validator is not recognized
+    pub fn add_endorsement(&mut self, block_hash: &str, validator_id: &str) -> bool {
+        // Only accept endorsements from registered validators
+        if !self.validators.contains(&validator_id.to_string()) {
+            return false;
+        }
+
+        self.pending_endorsements
+            .entry(block_hash.to_string())
+            .or_insert_with(HashSet::new)
+            .insert(validator_id.to_string());
+        true
+    }
+
+    /// Get the number of endorsements for a block.
+    pub fn endorsement_count(&self, block_hash: &str) -> usize {
+        self.pending_endorsements
+            .get(block_hash)
+            .map(|e| e.len())
+            .unwrap_or(0)
+    }
+
+    /// Clear endorsements for a block (after finalization or expiry).
+    pub fn clear_endorsements(&mut self, block_hash: &str) {
+        self.pending_endorsements.remove(block_hash);
     }
 
     /// Alias for add_validator for compatibility with PoA API.
