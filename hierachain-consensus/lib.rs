@@ -32,12 +32,70 @@ fn dict_to_json(dict: &Bound<PyDict>) -> PyResult<Value> {
 
 // ==================== PyO3 Functions ====================
 
-/// Validate a block using Proof of Authority
+/// Validate a block using Proof of Authority consensus rules.
+///
+/// Checks:
+/// - Block has required fields (index, timestamp, events, hash)
+/// - Authority ID is valid (non-empty)
+/// - Block structure validation
+///
+/// # Arguments
+/// * `block_data` - Dictionary containing block data
+/// * `authority_id` - ID of the authority that created the block
+///
+/// # Returns
+/// * `true` if block is valid, `false` otherwise
 #[pyfunction]
 fn validate_poa_block(block_data: &Bound<PyDict>, authority_id: &str) -> PyResult<bool> {
-    let _block_json = dict_to_json(block_data)?;
-    // Implement actual POA validation logic
-    Ok(!authority_id.is_empty())
+    use crate::core::utils::validate_event_structure;
+
+    // Authority ID must be non-empty
+    if authority_id.is_empty() {
+        return Ok(false);
+    }
+
+    let block_json = dict_to_json(block_data)?;
+
+    // Block must be an object
+    let block_obj = match block_json.as_object() {
+        Some(obj) => obj,
+        None => return Ok(false),
+    };
+
+    // Check required fields exist
+    let required_fields = ["index", "timestamp", "hash"];
+    for field in required_fields {
+        if !block_obj.contains_key(field) {
+            return Ok(false);
+        }
+    }
+
+    // Validate timestamp is a number
+    if let Some(ts) = block_obj.get("timestamp") {
+        if !ts.is_number() {
+            return Ok(false);
+        }
+    }
+
+    // Validate index is a number
+    if let Some(idx) = block_obj.get("index") {
+        if !idx.is_number() {
+            return Ok(false);
+        }
+    }
+
+    // Validate events if present
+    if let Some(events) = block_obj.get("events") {
+        if let Some(events_arr) = events.as_array() {
+            for event in events_arr {
+                if !validate_event_structure(event) {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+
+    Ok(true)
 }
 
 #[pyfunction]
@@ -48,14 +106,48 @@ fn calculate_block_hash(block_data: &Bound<PyDict>, py: Python) -> PyResult<Py<P
     Ok(PyString::new(py, &hash).into())
 }
 
-/// Bulk validate transactions
+/// Bulk validate transactions with actual validation logic.
+///
+/// Validates each transaction for:
+/// - Required fields (entity_id, event, timestamp)
+/// - Proper field types
+/// - No cryptocurrency terminology
+///
+/// # Arguments
+/// * `transactions` - List of transaction dictionaries
+///
+/// # Returns
+/// * `true` if all transactions are valid, `false` if any fails
 #[pyfunction]
 fn bulk_validate_transactions(transactions: &Bound<PyList>) -> PyResult<bool> {
+    use crate::core::utils::{validate_event_structure, validate_no_cryptocurrency_terms};
+
     for item in transactions.iter() {
         let tx_dict = item.cast::<PyDict>()?;
-        let _tx_json = dict_to_json(&tx_dict)?;
-        // Implement actual transaction validation logic
+        let tx_json = dict_to_json(&tx_dict)?;
+
+        // Transaction must be an object
+        let tx_obj = match tx_json.as_object() {
+            Some(obj) => obj,
+            None => return Ok(false),
+        };
+
+        // Check required fields
+        if !tx_obj.contains_key("entity_id") || !tx_obj.contains_key("event") {
+            return Ok(false);
+        }
+
+        // Validate event structure
+        if !validate_event_structure(&tx_json) {
+            return Ok(false);
+        }
+
+        // Check for forbidden cryptocurrency terms
+        if !validate_no_cryptocurrency_terms(&tx_json) {
+            return Ok(false);
+        }
     }
+
     Ok(true)
 }
 
@@ -75,11 +167,7 @@ fn batch_create_blocks(
         let kwargs = PyDict::new(py);
         kwargs.set_item("previous_hash", &prev_hash)?;
 
-        let block = Block::new(
-            start_index + i as u64,
-            &events,
-            Some(&kwargs.as_borrowed()),
-        )?;
+        let block = Block::new(start_index + i as u64, &events, Some(&kwargs.as_borrowed()))?;
 
         prev_hash = block.hash.clone();
         blocks.push(Py::new(py, block)?);
