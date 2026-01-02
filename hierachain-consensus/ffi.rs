@@ -54,6 +54,11 @@ unsafe fn write_result(result: &str, out_buf: *mut c_char, buf_len: usize) -> i3
 ///
 /// # Returns
 /// * 0 on success, negative error code on failure
+///
+/// # Safety
+/// - `events_json` must be a valid, null-terminated C string
+/// - `result` must point to a buffer of at least `result_len` bytes
+/// - `result_len` must be at least 65 bytes to hold SHA256 hex + null terminator
 #[no_mangle]
 pub unsafe extern "C" fn ffi_calculate_merkle_root(
     events_json: *const c_char,
@@ -92,6 +97,11 @@ pub unsafe extern "C" fn ffi_calculate_merkle_root(
 ///
 /// # Returns
 /// * 0 on success, negative error code on failure
+///
+/// # Safety
+/// - `block_json` must be a valid, null-terminated C string
+/// - `result` must point to a buffer of at least `result_len` bytes
+/// - `result_len` must be at least 65 bytes to hold SHA256 hex + null terminator
 #[no_mangle]
 pub unsafe extern "C" fn ffi_calculate_block_hash(
     block_json: *const c_char,
@@ -124,6 +134,9 @@ pub unsafe extern "C" fn ffi_calculate_block_hash(
 ///
 /// # Returns
 /// * 1 if all valid, 0 if any invalid, negative error code on failure
+///
+/// # Safety
+/// - `transactions_json` must be a valid, null-terminated C string containing valid JSON
 #[no_mangle]
 pub unsafe extern "C" fn ffi_bulk_validate_transactions(transactions_json: *const c_char) -> i32 {
     // Parse input
@@ -165,6 +178,12 @@ pub unsafe extern "C" fn ffi_bulk_validate_transactions(transactions_json: *cons
 ///
 /// # Returns
 /// * 0 on success, negative error code on failure
+///
+/// # Safety
+/// - `arrow_ipc` must point to a valid buffer of at least `arrow_ipc_len` bytes
+/// - `result` must point to a buffer of at least `result_capacity` bytes
+/// - `result_len` must be a valid pointer to write the output length
+/// - None of the pointers may be null
 #[no_mangle]
 pub unsafe extern "C" fn ffi_process_arrow_batch(
     arrow_ipc: *const u8,
@@ -201,6 +220,10 @@ pub unsafe extern "C" fn ffi_process_arrow_batch(
 ///
 /// # Returns
 /// * 0 on success, negative error code on failure
+///
+/// # Safety
+/// - `result` must point to a buffer of at least `result_len` bytes
+/// - `result_len` should be at least 32 bytes to safely hold version strings
 #[no_mangle]
 pub unsafe extern "C" fn ffi_get_version(result: *mut c_char, result_len: usize) -> i32 {
     let version = env!("CARGO_PKG_VERSION");
