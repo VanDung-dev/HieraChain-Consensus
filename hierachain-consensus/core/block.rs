@@ -14,11 +14,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
+/// Maximum JSON input size for deserialization (10 MB)
+pub const MAX_JSON_INPUT_SIZE: usize = 10 * 1024 * 1024;
+
+/// Maximum number of events per block
+pub const MAX_EVENTS_PER_BLOCK: usize = 10_000;
+
+/// Maximum clock drift allowed for timestamps (5 minutes into future)
+pub const MAX_FUTURE_TIMESTAMP_SECONDS: f64 = 300.0;
+
 /// Block structure with PyO3 bindings.
 /// Events are stored as Vec<Value> internally but converted efficiently using pythonize.
 /// Optionally stores Arrow RecordBatch for zero-copy interop with Python.
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Block {
     #[pyo3(get, set)]
     pub index: u64,
@@ -106,12 +116,23 @@ impl Block {
 
     /// Convert Python events (list of dicts) to Vec<Value> using pythonize
     /// Optimized version with batch conversion and minimal fallback overhead
+    ///
+    /// # Security
+    /// - Enforces MAX_EVENTS_PER_BLOCK limit to prevent DoS via large lists
     fn convert_events_to_values(events: &Bound<'_, PyAny>) -> PyResult<Vec<Value>> {
         let events_list = events
             .downcast::<PyList>()
             .map_err(|_| pyo3::exceptions::PyTypeError::new_err("events must be a list"))?;
 
         let len = events_list.len();
+
+        // Security: Limit number of events to prevent DoS
+        if len > MAX_EVENTS_PER_BLOCK {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Too many events: {} exceeds maximum of {}",
+                len, MAX_EVENTS_PER_BLOCK
+            )));
+        }
 
         // Pre-allocate with exact capacity
         let mut parsed_events: Vec<Value> = Vec::with_capacity(len);
@@ -236,13 +257,41 @@ impl Block {
     }
 
     /// Validate the block structure
+    ///
+    /// Checks:
+    /// - All events have valid structure
+    /// - Event count does not exceed maximum
     pub fn validate_structure(&self) -> bool {
+        // Check event count limit
+        if self.events.len() > MAX_EVENTS_PER_BLOCK {
+            return false;
+        }
+
         for event in &self.events {
             if !validate_event_structure(event) {
                 return false;
             }
         }
         true
+    }
+
+    /// Validate block timestamp is not too far in the future.
+    ///
+    /// # Arguments
+    /// * `current_time` - Optional current time for testing, uses system time if None
+    ///
+    /// # Returns
+    /// * True if timestamp is valid (not in far future)
+    pub fn validate_timestamp(&self, current_time: Option<f64>) -> bool {
+        let now = current_time.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0)
+        });
+
+        // Timestamp must not be more than MAX_FUTURE_TIMESTAMP_SECONDS in the future
+        self.timestamp <= now + MAX_FUTURE_TIMESTAMP_SECONDS
     }
 
     /// Add an event to the block (Python wrapper)
