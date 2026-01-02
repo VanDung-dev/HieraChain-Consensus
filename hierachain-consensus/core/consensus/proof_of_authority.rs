@@ -7,6 +7,7 @@
 use crate::core::block::Block;
 use crate::core::consensus::base_consensus::BaseConsensusTrait;
 use crate::core::utils::{validate_event_structure, validate_no_cryptocurrency_terms};
+use crate::security::security_utils::verify_signature;
 use serde_json::{Map, Value};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
@@ -17,6 +18,8 @@ pub struct ProofOfAuthority {
     pub name: String,
     pub authorities: HashSet<String>,
     pub authority_metadata: HashMap<String, Map<String, Value>>,
+    /// Public keys for each authority (authority_id -> public_key_hex)
+    pub authority_public_keys: HashMap<String, String>,
     pub config: Map<String, Value>,
 }
 
@@ -26,19 +29,45 @@ impl ProofOfAuthority {
         config.insert("block_interval".to_string(), Value::from(10.0));
         config.insert("require_authority_signature".to_string(), Value::Bool(true));
         config.insert("max_authorities".to_string(), Value::from(100));
+        // New: Enable strict signature verification
+        config.insert(
+            "strict_signature_verification".to_string(),
+            Value::Bool(true),
+        );
 
         ProofOfAuthority {
             name: name.to_string(),
             authorities: HashSet::new(),
             authority_metadata: HashMap::new(),
+            authority_public_keys: HashMap::new(),
             config,
         }
     }
 
+    /// Add an authority without a public key (backward compatible).
+    /// Note: Without public key, signature verification will use legacy mode.
     pub fn add_authority(
         &mut self,
         authority_id: String,
         metadata: Option<Map<String, Value>>,
+    ) -> bool {
+        self.add_authority_with_key(authority_id, metadata, None)
+    }
+
+    /// Add an authority with a public key for signature verification.
+    ///
+    /// # Arguments
+    /// * `authority_id` - Unique identifier for the authority
+    /// * `metadata` - Optional metadata for the authority
+    /// * `public_key_hex` - Optional Ed25519 public key in hex format
+    ///
+    /// # Returns
+    /// * `true` if authority was added successfully
+    pub fn add_authority_with_key(
+        &mut self,
+        authority_id: String,
+        metadata: Option<Map<String, Value>>,
+        public_key_hex: Option<String>,
     ) -> bool {
         let max_auths = self
             .config
@@ -50,17 +79,24 @@ impl ProofOfAuthority {
         }
         self.authorities.insert(authority_id.clone());
         if let Some(meta) = metadata {
-            self.authority_metadata.insert(authority_id, meta);
+            self.authority_metadata.insert(authority_id.clone(), meta);
         } else {
-            self.authority_metadata.insert(authority_id, Map::new());
+            self.authority_metadata
+                .insert(authority_id.clone(), Map::new());
+        }
+        // Store public key if provided
+        if let Some(pk) = public_key_hex {
+            self.authority_public_keys.insert(authority_id, pk);
         }
         true
     }
 
+    /// Remove an authority and its associated keys.
     pub fn remove_authority(&mut self, authority_id: &str) -> bool {
         if self.authorities.contains(authority_id) {
             self.authorities.remove(authority_id);
             self.authority_metadata.remove(authority_id);
+            self.authority_public_keys.remove(authority_id);
             return true;
         }
         false
@@ -81,7 +117,17 @@ impl ProofOfAuthority {
         Some(sorted_auths[idx].clone())
     }
 
+    /// Validate authority signature on a block.
+    ///
+    /// This method performs cryptographic signature verification when public keys
+    /// are available. Falls back to membership check if strict verification is disabled.
     fn has_valid_authority_signature(&self, block: &Block) -> bool {
+        let strict_verification = self
+            .config
+            .get("strict_signature_verification")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         // Look for consensus finalization event
         for event in &block.events {
             if let Some(obj) = event.as_object() {
@@ -91,9 +137,34 @@ impl ProofOfAuthority {
                             if let Some(auth_id) =
                                 details.get("authority_id").and_then(|v| v.as_str())
                             {
-                                // Simplify: Check if basic auth ID is recognized.
-                                // Real sig check would verify 'authority_signature' field against pubkey.
-                                if self.is_authority(auth_id) {
+                                // First, check if authority is recognized
+                                if !self.is_authority(auth_id) {
+                                    continue;
+                                }
+
+                                // Get signature from the event
+                                let signature =
+                                    details.get("authority_signature").and_then(|v| v.as_str());
+
+                                if let Some(public_key) = self.authority_public_keys.get(auth_id) {
+                                    if let Some(sig) = signature {
+                                        // Create signable payload from block data
+                                        let payload = format!("{}{}", block.hash, auth_id);
+
+                                        // Verify Ed25519 signature
+                                        if verify_signature(public_key, payload.as_bytes(), sig) {
+                                            return true;
+                                        }
+                                        // Signature verification failed
+                                        continue;
+                                    }
+                                    // No signature but public key exists - fail if strict
+                                    if strict_verification {
+                                        continue;
+                                    }
+                                }
+
+                                if !strict_verification || self.authority_public_keys.is_empty() {
                                     return true;
                                 }
                             }
