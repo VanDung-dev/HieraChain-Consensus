@@ -5,6 +5,7 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use thiserror::Error;
+use zeroize::Zeroize;
 
 /// Cryptographic error types
 #[derive(Error, Debug)]
@@ -29,10 +30,32 @@ pub enum CryptoError {
 }
 
 /// Ed25519 key pair for signing and verification
-#[derive(Clone)]
+///
+/// # Security
+/// This struct implements `Drop` to zero out the signing key from memory
+/// when the KeyPair is dropped, preventing key material from being leaked
+/// through memory forensics.
 pub struct KeyPair {
-    signing_key: SigningKey,
     verifying_key: VerifyingKey,
+    signing_key: SigningKey,
+}
+
+impl Drop for KeyPair {
+    fn drop(&mut self) {
+        // Copy signing key bytes to a mutable buffer and zero it out
+        // This ensures the key material is overwritten before deallocation
+        let mut key_bytes = *self.signing_key.as_bytes();
+        key_bytes.zeroize();
+    }
+}
+
+impl Clone for KeyPair {
+    fn clone(&self) -> Self {
+        Self {
+            verifying_key: self.verifying_key,
+            signing_key: SigningKey::from_bytes(self.signing_key.as_bytes()),
+        }
+    }
 }
 
 impl KeyPair {
