@@ -25,8 +25,23 @@ use crate::security::{py_verify_signature, PyKeyPair};
 
 // ==================== Helper Functions for PyO3 ====================
 
-/// Convert Python dict to serde_json::Value
+// Import MAX_JSON_INPUT_SIZE
+use crate::core::block::MAX_JSON_INPUT_SIZE;
+
+/// Convert Python dict to serde_json::Value with size limit check
 fn dict_to_json(dict: &Bound<PyDict>) -> PyResult<Value> {
+    // Basic approximate size check to prevent DoS
+    // Note: len() only counts keys, which is insufficient for nested structures.
+    // A better check is done during recursive conversion, or by checking string repr length.
+    let str_repr = dict.str()?.to_string();
+    if str_repr.len() > MAX_JSON_INPUT_SIZE {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Input too large: {} bytes (max {})",
+            str_repr.len(),
+            MAX_JSON_INPUT_SIZE
+        )));
+    }
+
     utils::pyo3_helpers::dict_to_json(dict)
 }
 
