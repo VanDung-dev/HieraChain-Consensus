@@ -7,7 +7,7 @@
 //! - `map_to_dict`: Convert Rust `Map<String, Value>` to Python dict
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 
@@ -23,7 +23,25 @@ use serde_json::{Map, Value};
 ///
 /// # Returns
 /// `serde_json::Value` representation of the Python object
+/// Convert Python object to serde_json::Value with recursion limit
+///
+/// # Arguments
+/// * `obj` - Reference to a Python object
+///
+/// # Returns
+/// `serde_json::Value` representation of the Python object
 pub fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
+    py_to_json_recursive(obj, 0)
+}
+
+fn py_to_json_recursive(obj: &Bound<PyAny>, depth: usize) -> PyResult<Value> {
+    // Prevent stack overflow
+    if depth > 50 {
+        return Err(pyo3::exceptions::PyRecursionError::new_err(
+            "Recursion limit exceeded during JSON conversion",
+        ));
+    }
+
     if let Ok(val) = obj.cast::<PyString>() {
         Ok(Value::String(val.to_str()?.to_string()))
     } else if let Ok(val) = obj.cast::<PyFloat>() {
@@ -37,21 +55,30 @@ pub fn py_to_json(obj: &Bound<PyAny>) -> PyResult<Value> {
         } else if let Ok(v) = val.extract::<u64>() {
             Ok(Value::Number(v.into()))
         } else {
-            Ok(Value::Number(0.into()))
+            // Error on overflow instead of returning 0
+            Err(pyo3::exceptions::PyOverflowError::new_err(
+                "Integer too large for Rust i64/u64",
+            ))
         }
     } else if let Ok(val) = obj.cast::<PyBool>() {
         Ok(Value::Bool(val.is_true()))
+    } else if let Ok(val) = obj.cast::<PyBytes>() {
+        // Convert bytes to hex string for JSON compatibility
+        Ok(Value::String(hex::encode(val.as_bytes())))
     } else if let Ok(val) = obj.cast::<PyList>() {
         let mut vec = Vec::new();
         for item in val.iter() {
-            vec.push(py_to_json(&item)?);
+            vec.push(py_to_json_recursive(&item, depth + 1)?);
         }
         Ok(Value::Array(vec))
     } else if let Ok(val) = obj.cast::<PyDict>() {
         let mut map = Map::new();
         for (key, value) in val.iter() {
             let key_str: &str = key.cast::<PyString>()?.to_str()?;
-            map.insert(key_str.to_string(), py_to_json(&value)?);
+            map.insert(
+                key_str.to_string(),
+                py_to_json_recursive(&value, depth + 1)?,
+            );
         }
         Ok(Value::Object(map))
     } else if obj.is_none() {
