@@ -5,7 +5,6 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use thiserror::Error;
-use zeroize::Zeroize;
 
 /// Cryptographic error types
 #[derive(Error, Debug)]
@@ -40,14 +39,6 @@ pub struct KeyPair {
     signing_key: SigningKey,
 }
 
-impl Drop for KeyPair {
-    fn drop(&mut self) {
-        // Copy signing key bytes to a mutable buffer and zero it out
-        // This ensures the key material is overwritten before deallocation
-        let mut key_bytes = *self.signing_key.as_bytes();
-        key_bytes.zeroize();
-    }
-}
 
 impl Clone for KeyPair {
     fn clone(&self) -> Self {
