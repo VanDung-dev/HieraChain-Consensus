@@ -137,6 +137,15 @@ impl MerkleTree {
 
     /// Recursively build the Merkle Tree - optimized with pre-allocated buffers
     fn build_tree(nodes: &[String]) -> String {
+        const MAX_TREE_DEPTH: usize = 32;
+        Self::build_tree_recursive(nodes, 0, MAX_TREE_DEPTH)
+    }
+
+    fn build_tree_recursive(nodes: &[String], depth: usize, max_depth: usize) -> String {
+        if depth > max_depth {
+            return String::new();
+        }
+
         if nodes.is_empty() {
             // Empty tree hash - SHA256("")
             let hash = Sha256::digest(b"");
@@ -167,7 +176,7 @@ impl MerkleTree {
             }
         });
 
-        Self::build_tree(&new_level)
+        Self::build_tree_recursive(&new_level, depth + 1, max_depth)
     }
 
     /// Get the Merkle Root hash
