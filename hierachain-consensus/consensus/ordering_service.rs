@@ -21,6 +21,11 @@ use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
 use crate::security::security_utils::verify_signature_bytes;
 
+/// Maximum number of pending events allowed (DoS protection)
+const MAX_PENDING_EVENTS: usize = 100_000;
+/// Maximum number of blocks in commit queue (DoS protection)
+const MAX_COMMIT_QUEUE_SIZE: usize = 10_000;
+
 /// Event certification and validation
 pub struct EventCertifier {
     validation_rules: Arc<Mutex<Vec<fn(&Value) -> bool>>>,
@@ -310,6 +315,10 @@ impl OrderingService {
         };
 
         if let Ok(mut guard) = self.pending_events.lock() {
+            if guard.len() >= MAX_PENDING_EVENTS {
+                eprintln!("Dropped event {}: Pending queue full", event_id);
+                return "ERROR_QUEUE_FULL".to_string();
+            }
             guard.insert(event_id.clone(), event.clone());
         }
 
@@ -372,8 +381,13 @@ impl OrderingService {
                             if service_clone.certifier.validate(&mut event) {
                                 event.status = EventStatus::Certified;
                                 if let Some(block) = service_clone.block_builder.add_event(event.clone()) {
-                                    service_clone.commit_queue.lock().unwrap().push_back(block);
-                                    service_clone.blocks_created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    let mut queue = service_clone.commit_queue.lock().unwrap();
+                                    if queue.len() < MAX_COMMIT_QUEUE_SIZE {
+                                        queue.push_back(block);
+                                        service_clone.blocks_created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    } else {
+                                        eprintln!("Dropped block: Commit queue full");
+                                    }
                                 }
                             } else {
                                 event.status = EventStatus::Rejected;
