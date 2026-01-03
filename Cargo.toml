@@ -22,7 +22,7 @@ pythonize = "0.26.0"
 crossbeam-channel = "0.5.0"
 arrow = { version = "57.0.0", features = ["pyarrow"] }
 tokio = { version = "1.0.0", features = ["full"] }
-ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
+ed25519-dalek = { version = "2.0.0", features = ["rand_core", "zeroize"] }
 hex = "0.4.0"
 thiserror = "2.0.0"
 rand = "0.8.0"
