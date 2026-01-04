@@ -29,6 +29,7 @@ jobs:
           config: |
             paths-ignore:
               - benchmark/**
+              - demo/**
               - .github/**
 
       - name: Build for Analysis
