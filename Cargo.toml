@@ -29,7 +29,6 @@ rand = "0.8.0"
 uuid = { version = "1.19.0", features = ["v4"] }
 regex = "1.12.0"
 log = "0.4.0"
-zeroize = { version = "1.8.0", features = ["derive"] }
 
 [package.metadata.maturin]
 name = "hierachain_consensus"
