@@ -14,21 +14,21 @@ path = "hierachain-consensus/lib.rs"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-serde = { version = "1.0.0", features = ["derive"] }
-serde_json = "1.0.0"
-sha2 = "0.10.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+sha2 = "0.10.9"
 pyo3 = { version = "0.26.0", features = ["extension-module"] }
 pythonize = "0.26.0"
-crossbeam-channel = "0.5.0"
-arrow = { version = "57.0.0", features = ["pyarrow"] }
-tokio = { version = "1.0.0", features = ["full"] }
-ed25519-dalek = { version = "2.0.0", features = ["rand_core", "zeroize"] }
-hex = "0.4.0"
-thiserror = "2.0.0"
-rand = "0.8.0"
+crossbeam-channel = "0.5.15"
+arrow = { version = "57.1.0", features = ["pyarrow"] }
+tokio = { version = "1.48.0", features = ["full"] }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core", "zeroize"] }
+hex = "0.4.3"
+thiserror = "2.0.17"
+rand = "0.8.5"
 uuid = { version = "1.19.0", features = ["v4"] }
-regex = "1.12.0"
-log = "0.4.0"
+regex = "1.12.2"
+log = "0.4.29"
 
 [package.metadata.maturin]
 name = "hierachain_consensus"
