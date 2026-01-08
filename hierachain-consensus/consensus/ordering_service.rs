@@ -20,6 +20,7 @@ use crate::consensus::types::{
 use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
 use crate::security::security_utils::verify_signature_bytes;
+use crate::security::zk_verifier::Verifier;
 
 /// Maximum number of pending events allowed (DoS protection)
 const MAX_PENDING_EVENTS: usize = 100_000;
@@ -29,12 +30,20 @@ const MAX_COMMIT_QUEUE_SIZE: usize = 10_000;
 /// Event certification and validation
 pub struct EventCertifier {
     validation_rules: Arc<Mutex<Vec<fn(&Value) -> bool>>>,
+    verifier: Arc<Mutex<Option<Arc<dyn Verifier>>>>,
 }
 
 impl EventCertifier {
     pub fn new() -> Self {
         EventCertifier {
             validation_rules: Arc::new(Mutex::new(Vec::new())),
+            verifier: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn set_verifier(&self, verifier: Arc<dyn Verifier>) {
+        if let Ok(mut v) = self.verifier.lock() {
+            *v = Some(verifier);
         }
     }
 
@@ -109,7 +118,43 @@ impl EventCertifier {
             }
         }
 
-        // 3. Custom Rules
+        // 3. ZK Proof Verification (if verifier configured and proof present)
+        if valid {
+            if let Ok(verifier_guard) = self.verifier.lock() {
+                if let Some(verifier) = &*verifier_guard {
+                    if let Some(obj) = event.event_data.as_object() {
+                        if let (Some(proof_hex), Some(inputs_hex)) = (
+                            obj.get("zk_proof").and_then(|v| v.as_str()),
+                            obj.get("zk_public_inputs").and_then(|v| v.as_str()),
+                        ) {
+                            // Decode hex
+                            let proof_bytes = hex::decode(proof_hex).unwrap_or_default();
+                            let inputs_bytes = hex::decode(inputs_hex).unwrap_or_default();
+
+                            if proof_bytes.is_empty() {
+                                valid = false;
+                                errors.push("Invalid hex in zk_proof".to_string());
+                            } else {
+                                // Verify
+                                match verifier.verify(&proof_bytes, &inputs_bytes) {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        valid = false;
+                                        errors.push("Invalid ZK Proof".to_string());
+                                    }
+                                    Err(e) => {
+                                        valid = false;
+                                        errors.push(format!("ZK Verification Error: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Custom Rules
         if let Ok(rules) = self.validation_rules.lock() {
             for rule in rules.iter() {
                 if !rule(&event.event_data) {
@@ -427,5 +472,10 @@ impl fmt::Display for OrderingService {
 impl OrderingService {
     pub fn to_repr(&self) -> String {
         self.to_string()
+    }
+
+    /// Set ZK Verifier
+    pub fn set_verifier(&self, verifier: Arc<dyn Verifier>) {
+        self.certifier.set_verifier(verifier);
     }
 }
