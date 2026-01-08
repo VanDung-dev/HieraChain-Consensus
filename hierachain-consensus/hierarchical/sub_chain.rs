@@ -11,6 +11,7 @@ use crate::core::blockchain::Blockchain;
 use crate::core::consensus::base_consensus::BaseConsensusTrait;
 use crate::core::consensus::proof_of_authority::ProofOfAuthority;
 use crate::core::consensus::proof_of_federation::ProofOfFederation;
+use crate::security::zk_verifier::Verifier;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
@@ -108,6 +109,13 @@ impl ConsensusWrapper {
         match self {
             ConsensusWrapper::PoA(_) => "proof_of_authority",
             ConsensusWrapper::PoF(_) => "proof_of_federation",
+        }
+    }
+
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        match self {
+            ConsensusWrapper::PoA(poa) => poa.set_verifier(verifier),
+            ConsensusWrapper::PoF(pof) => pof.set_verifier(verifier),
         }
     }
 }
@@ -784,6 +792,11 @@ impl SubChain {
             *running = false;
         }
         self.ordering_service.stop();
+    }
+
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        self.consensus.set_verifier(verifier.clone());
+        self.ordering_service.set_verifier(verifier);
     }
 }
 

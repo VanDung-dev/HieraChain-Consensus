@@ -9,8 +9,10 @@ use crate::core::blockchain::Blockchain;
 use crate::core::consensus::base_consensus::BaseConsensusTrait;
 use crate::core::consensus::proof_of_authority::ProofOfAuthority;
 use crate::core::consensus::proof_of_federation::ProofOfFederation;
+use crate::security::zk_verifier::Verifier;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Consensus type for MainChain
@@ -122,6 +124,14 @@ impl ConsensusWrapper {
         match self {
             ConsensusWrapper::PoA(_) => "proof_of_authority",
             ConsensusWrapper::PoF(_) => "proof_of_federation",
+        }
+    }
+
+    /// Set ZK Verifier
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        match self {
+            ConsensusWrapper::PoA(poa) => poa.set_verifier(verifier),
+            ConsensusWrapper::PoF(pof) => pof.set_verifier(verifier),
         }
     }
 }
@@ -274,6 +284,11 @@ impl MainChain {
             sub_chain_metadata: HashMap::new(),
             proof_count: 0,
         }
+    }
+
+    /// Set ZK Verifier
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        self.consensus.set_verifier(verifier);
     }
 
     /// Get chain name
