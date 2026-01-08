@@ -14,18 +14,35 @@ path = "hierachain-consensus/lib.rs"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+# Serialization & Data Handling
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
-sha2 = "0.10.9"
+arrow = { version = "57.1.0", features = ["pyarrow"] }
+
+# Python Integration (FFI)
 pyo3 = { version = "0.26.0", features = ["extension-module"] }
 pythonize = "0.26.0"
-crossbeam-channel = "0.5.15"
-arrow = { version = "57.1.0", features = ["pyarrow"] }
+
+# Async & Runtime
 tokio = { version = "1.48.0", features = ["full"] }
+crossbeam-channel = "0.5.15"
+
+# Cryptography & Security
+sha2 = "0.10.9"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core", "zeroize"] }
 hex = "0.4.3"
-thiserror = "2.0.17"
 rand = "0.8.5"
+
+# Zero Knowledge Proofs (ZKP)
+ark-bn254 = "0.5.0"
+ark-groth16 = "0.5.0"
+ark-serialize = "0.5.0"
+ark-std = "0.5.0"
+ark-snark = "0.5.0"
+ark-ec = "0.5.0"
+
+# Utilities & Error Handling
+thiserror = "2.0.17"
 uuid = { version = "1.19.0", features = ["v4"] }
 regex = "1.12.2"
 log = "0.4.29"
