@@ -5,13 +5,16 @@
 //! It replaces the static authority model with a rotating leader schedule,
 //! ensuring fair participation and removing single points of failure.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::core::block::Block;
-use crate::core::consensus::base_consensus::BaseConsensusTrait;
+use crate::core::consensus::base_consensus::{verify_block_zk_proof, BaseConsensusTrait};
 use crate::core::utils::{validate_event_structure, validate_no_cryptocurrency_terms};
+use crate::security::zk_verifier::Verifier;
 use serde_json::{Map, Value};
 use sha2::Digest;
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Proof of Federation (PoF) Consensus.
 ///
@@ -34,6 +37,8 @@ pub struct ProofOfFederation {
     pub pending_endorsements: HashMap<String, HashSet<String>>,
     /// Configuration settings (JSON-based, matching Python style).
     pub config: Map<String, Value>,
+    /// Optional ZK Verifier
+    pub verifier: Option<Arc<dyn Verifier>>,
 }
 
 impl ProofOfFederation {
@@ -56,7 +61,13 @@ impl ProofOfFederation {
             validator_public_keys: HashMap::new(),
             pending_endorsements: HashMap::new(),
             config,
+            verifier: None,
         }
+    }
+
+    /// Set ZK Verifier
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        self.verifier = Some(verifier);
     }
 
     /// Get the number of active validators.
@@ -318,6 +329,13 @@ impl BaseConsensusTrait for ProofOfFederation {
         // 5. Validate each event
         for event in &block.events {
             if !self.validate_event_for_consensus(event) {
+                return false;
+            }
+        }
+
+        // 6. Verify ZK Proof if configured
+        if let Some(verifier) = &self.verifier {
+            if !verify_block_zk_proof(block, verifier.as_ref(), false) {
                 return false;
             }
         }

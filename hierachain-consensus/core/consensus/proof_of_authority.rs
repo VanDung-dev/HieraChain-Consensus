@@ -4,14 +4,17 @@
 //! for the HieraChain framework where specific authorities (Main Chain,
 //! Sub-Chains) have designated roles and permissions for block creation.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::core::block::Block;
-use crate::core::consensus::base_consensus::BaseConsensusTrait;
+use crate::core::consensus::base_consensus::{verify_block_zk_proof, BaseConsensusTrait};
 use crate::core::utils::{validate_event_structure, validate_no_cryptocurrency_terms};
 use crate::security::security_utils::verify_signature;
+use crate::security::zk_verifier::Verifier;
 use serde_json::{Map, Value};
 use sha2::Digest;
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Proof of Authority consensus implementation
 pub struct ProofOfAuthority {
@@ -21,6 +24,8 @@ pub struct ProofOfAuthority {
     /// Public keys for each authority (authority_id -> public_key_hex)
     pub authority_public_keys: HashMap<String, String>,
     pub config: Map<String, Value>,
+    /// Optional ZK Verifier
+    pub verifier: Option<Arc<dyn Verifier>>,
 }
 
 impl ProofOfAuthority {
@@ -41,7 +46,13 @@ impl ProofOfAuthority {
             authority_metadata: HashMap::new(),
             authority_public_keys: HashMap::new(),
             config,
+            verifier: None,
         }
+    }
+
+    /// Set ZK Verifier
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        self.verifier = Some(verifier);
     }
 
     /// Add an authority without a public key (backward compatible).
@@ -223,6 +234,13 @@ impl BaseConsensusTrait for ProofOfAuthority {
             .unwrap_or(true);
         if require_sig && !self.has_valid_authority_signature(block) {
             return false;
+        }
+
+        // Verify ZK Proof if configured
+        if let Some(verifier) = &self.verifier {
+            if !verify_block_zk_proof(block, verifier.as_ref(), false) {
+                return false;
+            }
         }
 
         true

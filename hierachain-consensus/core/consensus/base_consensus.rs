@@ -11,6 +11,39 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 use crate::core::block::Block;
+use crate::security::zk_verifier::Verifier;
+use log::{debug, warn};
+
+/// Shared ZK Proof verification logic
+/// Returns true if proof is valid or if no proof is required/present (depending on policy)
+pub fn verify_block_zk_proof(block: &Block, verifier: &dyn Verifier, require_proof: bool) -> bool {
+    // Check if block has proof
+    if let (Some(proof), Some(inputs)) = (&block.zk_proof, &block.zk_public_inputs) {
+        // has proof, verify it
+        match verifier.verify(proof, inputs) {
+            Ok(valid) => {
+                if !valid {
+                    warn!("Block {} ZK proof verification failed", block.index);
+                    return false;
+                }
+                debug!("Block {} ZK proof verified successfully", block.index);
+                true
+            }
+            Err(e) => {
+                warn!("Block {} ZK proof error: {}", block.index, e);
+                false
+            }
+        }
+    } else {
+        // No proof present
+        if require_proof {
+            warn!("Block {} missing required ZK proof", block.index);
+            false
+        } else {
+            true
+        }
+    }
+}
 
 /// Trait defining the interface for consensus mechanisms
 /// This corresponds to the abstract base class in Python
