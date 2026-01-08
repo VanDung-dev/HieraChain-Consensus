@@ -307,18 +307,12 @@ impl ChannelLedger {
             hash: String::new(),        // Will be calculated
             creator_id: None,
             signature: None,
+            zk_proof: None,
+            zk_public_inputs: None,
         };
 
         // Recalculate hash and root
         block.hash = block.calculate_hash();
-        // Since we constructed manually, block.calculate_hash uses fields.
-        // We need to ensure merkle_root is set BEFORE calculating hash if we want it correct.
-        // Block::add_event calls calculate_hash, so we can re-add events to a fresh block if we wanted,
-        // but easier just to call private methods if available. Since they are not, let's use a workaround
-        // or just accept basic hash for now. The python code calls block.calculate_hash().
-        // Rust Block doesn't have a public update_merkle_root().
-        // Let's create a temporary block and recreate it.
-        // Or better:
         let mut temp_block = Block {
             index: block.index,
             events: Vec::new(),
@@ -330,6 +324,8 @@ impl ChannelLedger {
             hash: String::new(),
             creator_id: None,
             signature: None,
+            zk_proof: None,
+            zk_public_inputs: None,
         };
         for evt in block.events {
             temp_block.add_event(evt);
