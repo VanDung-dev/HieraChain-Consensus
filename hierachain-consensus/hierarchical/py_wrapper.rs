@@ -16,7 +16,9 @@ use std::sync::{Arc, Mutex};
 use crate::hierarchical::consensus::bft_consensus::BFTConsensus;
 use crate::hierarchical::main_chain::ConsensusType;
 use crate::hierarchical::{HierarchyManager, MainChain, SubChain};
+use crate::security::mock_verifier::{MockMode, MockVerifier};
 use crate::security::security_utils::KeyPair;
+use crate::security::zk_verifier::{Groth16Verifier, Verifier};
 use crate::security::PyKeyPair;
 use crate::utils::pyo3_helpers::{json_to_py, py_to_json};
 use crate::utils::{dict_to_map, map_to_py_dict};
@@ -183,6 +185,35 @@ impl PyBFTConsensus {
     fn shutdown(&self) {
         let inner = self.runtime.block_on(self.inner.lock());
         self.runtime.block_on(inner.shutdown());
+    }
+
+    /// Initialize ZK Verifier
+    ///
+    /// Args:
+    ///     mode: "mock" or "groth16"
+    ///     verifying_key: Optional bytes for verifying key (required for groth16)
+    #[pyo3(signature = (mode, verifying_key=None))]
+    fn init_zk_verifier(&self, mode: &str, verifying_key: Option<&[u8]>) -> PyResult<()> {
+        let verifier: Arc<dyn Verifier> = match mode {
+            "mock" | "test" => Arc::new(MockVerifier::new(MockMode::AcceptAll)),
+            "groth16" | "real" => {
+                let mut v = Groth16Verifier::new();
+                if let Some(vk) = verifying_key {
+                    v.init_with_key(vk)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                }
+                Arc::new(v)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Invalid ZK verifier mode. Use 'mock' or 'groth16'",
+                ))
+            }
+        };
+
+        let mut inner = self.runtime.block_on(self.inner.lock());
+        inner.set_verifier(verifier);
+        Ok(())
     }
 
     fn __str__(&self) -> String {
@@ -413,6 +444,30 @@ impl PyMainChain {
             self.inner.proof_count,
             self.inner.blockchain.is_chain_valid()
         )
+    }
+
+    /// Initialize ZK Verifier for Main Chain
+    #[pyo3(signature = (mode, verifying_key=None))]
+    pub fn init_zk_verifier(&mut self, mode: &str, verifying_key: Option<&[u8]>) -> PyResult<()> {
+        let verifier: Arc<dyn Verifier> = match mode {
+            "mock" | "test" => Arc::new(MockVerifier::new(MockMode::AcceptAll)),
+            "groth16" | "real" => {
+                let mut v = Groth16Verifier::new();
+                if let Some(vk) = verifying_key {
+                    v.init_with_key(vk)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                }
+                Arc::new(v)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Invalid ZK verifier mode. Use 'mock' or 'groth16'",
+                ))
+            }
+        };
+
+        self.inner.set_verifier(verifier);
+        Ok(())
     }
 
     fn __len__(&self) -> usize {
@@ -680,6 +735,35 @@ impl PySubChain {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
         inner.stop();
+        Ok(())
+    }
+
+    /// Initialize ZK Verifier for Sub Chain
+    #[pyo3(signature = (mode, verifying_key=None))]
+    pub fn init_zk_verifier(&self, mode: &str, verifying_key: Option<&[u8]>) -> PyResult<()> {
+        let verifier: Arc<dyn Verifier> = match mode {
+            "mock" | "test" => Arc::new(MockVerifier::new(MockMode::AcceptAll)),
+            "groth16" | "real" => {
+                let mut v = Groth16Verifier::new();
+                if let Some(vk) = verifying_key {
+                    v.init_with_key(vk)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                }
+                Arc::new(v)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Invalid ZK verifier mode. Use 'mock' or 'groth16'",
+                ))
+            }
+        };
+
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        inner.set_verifier(verifier);
         Ok(())
     }
 
