@@ -9,6 +9,7 @@ use crate::hierarchical::consensus::message::{BFTMessage, MessageType};
 use crate::hierarchical::consensus::state::ConsensusState;
 use crate::security::key_provider::{KeyProvider, LocalKeyProvider};
 use crate::security::security_utils::{verify_signature, KeyPair};
+use crate::security::zk_verifier::Verifier;
 
 use log::{debug, error, info, warn};
 use sha2::{Digest, Sha256};
@@ -156,6 +157,9 @@ pub struct BFTConsensus {
 
     /// Maximum failure count before action
     max_failure_count: u32,
+
+    /// ZK Proof Verifier (optional)
+    verifier: Option<Arc<dyn Verifier>>,
 }
 
 impl BFTConsensus {
@@ -225,7 +229,17 @@ impl BFTConsensus {
             auto_recovery_enabled: false,
             view_change_timeout: 30.0,
             max_failure_count: 3,
+            verifier: None,
         })
+    }
+
+    /// Set the ZK Proof Verifier
+    pub fn set_verifier(&mut self, verifier: Arc<dyn Verifier>) {
+        info!(
+            "BFTConsensus: ZK Verifier enabled: {}",
+            verifier.verifier_type()
+        );
+        self.verifier = Some(verifier);
     }
 
     /// Get the node ID
@@ -270,6 +284,12 @@ impl BFTConsensus {
         if !self.is_primary_inner(&inner) {
             // In production, would forward to primary
             debug!("Not primary, forwarding request");
+            return Ok(false);
+        }
+
+        // Validate ZK Proof if present in operation
+        if !self.validate_zk_proof_inner(&operation) {
+            warn!("Invalid ZK Proof in request");
             return Ok(false);
         }
 
@@ -403,6 +423,20 @@ impl BFTConsensus {
         // Verify signature
         if !self.verify_signature_inner(&message) {
             return Ok(false);
+        }
+
+        // Verify ZK Proof in request payload if present
+        if let Some(request) = message.data.get("request").and_then(|v| v.as_object()) {
+            if let Some(operation) = request.get("operation").and_then(|v| v.as_object()) {
+                let mut op_map = HashMap::new();
+                for (k, v) in operation {
+                    op_map.insert(k.clone(), v.clone());
+                }
+                if !self.validate_zk_proof_inner(&op_map) {
+                    warn!("Invalid ZK Proof in pre-prepare message");
+                    return Ok(false);
+                }
+            }
         }
 
         // Accept message
@@ -787,6 +821,57 @@ impl BFTConsensus {
         let mut hasher = Sha256::new();
         hasher.update(request_str.as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    fn validate_zk_proof_inner(&self, operation: &HashMap<String, serde_json::Value>) -> bool {
+        let verifier = match &self.verifier {
+            Some(v) => v,
+            None => return true,
+        };
+
+        // Check for proof strings (hex)
+        let zk_proof_hex = match operation.get("zk_proof").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => return true,
+        };
+
+        let zk_inputs_hex = match operation.get("zk_public_inputs").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => return true,
+        };
+
+        // Decode hex
+        let proof_bytes = match hex::decode(zk_proof_hex) {
+            Ok(b) => b,
+            Err(_) => {
+                warn!("Invalid hex in zk_proof");
+                return false;
+            }
+        };
+
+        let inputs_bytes = match hex::decode(zk_inputs_hex) {
+            Ok(b) => b,
+            Err(_) => {
+                warn!("Invalid hex in zk_public_inputs");
+                return false;
+            }
+        };
+
+        // Verify
+        match verifier.verify(&proof_bytes, &inputs_bytes) {
+            Ok(valid) => {
+                if !valid {
+                    warn!("ZK Proof verification failed for operation");
+                } else {
+                    debug!("ZK Proof verified");
+                }
+                valid
+            }
+            Err(e) => {
+                warn!("ZK Verifier error: {}", e);
+                false
+            }
+        }
     }
 }
 
