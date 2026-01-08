@@ -95,6 +95,8 @@ pub fn get_block_schema() -> Schema {
             ))),
             true,
         ),
+        Field::new("zk_proof", DataType::Binary, true),
+        Field::new("zk_public_inputs", DataType::Binary, true),
     ])
 }
 
@@ -126,5 +128,7 @@ pub fn get_transaction_schema() -> Schema {
             ),
             true,
         ),
+        Field::new("zk_proof", DataType::Binary, true),
+        Field::new("zk_public_inputs", DataType::Binary, true),
     ])
 }

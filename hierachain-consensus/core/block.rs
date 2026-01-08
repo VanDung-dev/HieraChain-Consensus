@@ -55,6 +55,10 @@ pub struct Block {
     pub creator_id: Option<String>,
     #[pyo3(get, set)]
     pub signature: Option<String>,
+    #[pyo3(get, set)]
+    pub zk_proof: Option<Vec<u8>>,
+    #[pyo3(get, set)]
+    pub zk_public_inputs: Option<Vec<u8>>,
 }
 
 // Rust-only implementation block
@@ -188,6 +192,8 @@ impl Block {
         let mut merkle_root = None;
         let mut creator_id = None;
         let mut signature = None;
+        let mut zk_proof = None;
+        let mut zk_public_inputs = None;
 
         if let Some(dict) = kwargs {
             if let Some(val) = dict.get_item("timestamp")? {
@@ -207,6 +213,12 @@ impl Block {
             }
             if let Some(val) = dict.get_item("signature")? {
                 signature = val.extract::<Option<String>>().unwrap_or(None);
+            }
+            if let Some(val) = dict.get_item("zk_proof")? {
+                zk_proof = val.extract::<Option<Vec<u8>>>().unwrap_or(None);
+            }
+            if let Some(val) = dict.get_item("zk_public_inputs")? {
+                zk_public_inputs = val.extract::<Option<Vec<u8>>>().unwrap_or(None);
             }
         }
 
@@ -236,6 +248,8 @@ impl Block {
             hash: String::new(),
             creator_id,
             signature,
+            zk_proof,
+            zk_public_inputs,
         };
 
         block.hash = block.calculate_hash();
@@ -345,6 +359,8 @@ impl Block {
         dict.set_item("hash", &self.hash)?;
         dict.set_item("creator_id", &self.creator_id)?;
         dict.set_item("signature", &self.signature)?;
+        dict.set_item("zk_proof", &self.zk_proof)?;
+        dict.set_item("zk_public_inputs", &self.zk_public_inputs)?;
 
         Ok(dict.into())
     }

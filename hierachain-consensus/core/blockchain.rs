@@ -74,6 +74,8 @@ impl Blockchain {
             hash: String::new(),
             creator_id: None,
             signature: None,
+            zk_proof: None,
+            zk_public_inputs: None,
         };
 
         // Calculate merkle root and hash
@@ -167,6 +169,8 @@ impl Blockchain {
             hash: String::new(),
             creator_id: None,
             signature: None,
+            zk_proof: None,
+            zk_public_inputs: None,
         };
 
         new_block.hash = new_block.calculate_hash();
@@ -483,6 +487,8 @@ impl Blockchain {
             hash,
             creator_id,
             signature,
+            zk_proof: None,
+            zk_public_inputs: None,
         })
     }
 
