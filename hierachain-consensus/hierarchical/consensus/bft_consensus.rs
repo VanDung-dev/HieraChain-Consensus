@@ -11,7 +11,7 @@ use crate::security::key_provider::{KeyProvider, LocalKeyProvider};
 use crate::security::security_utils::{verify_signature, KeyPair};
 use crate::security::zk_verifier::Verifier;
 
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
