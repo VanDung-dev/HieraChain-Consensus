@@ -5,6 +5,7 @@
 //! Matches Python's mock verification behavior.
 
 use super::zk_verifier::{Verifier, ZkVerifyResult};
+use log::{debug, warn};
 use sha2::{Digest, Sha256};
 
 /// Magic bytes that indicate a mock proof (matches Python implementation)
@@ -91,18 +92,32 @@ impl MockVerifier {
     fn verify_hash_check(&self, proof: &[u8], public_inputs: &[u8]) -> bool {
         // Proof format: magic_bytes + sha256(public_inputs)
         if !Self::has_magic_prefix(proof) {
+            warn!("MockVerifier: Proof missing magic bytes prefix");
             return false;
         }
 
         let hash_start = MOCK_PROOF_MAGIC.len();
         if proof.len() < hash_start + 32 {
+            warn!(
+                "MockVerifier: Proof too short (len={}, expected>={})",
+                proof.len(),
+                hash_start + 32
+            );
             return false;
         }
 
         let proof_hash = &proof[hash_start..hash_start + 32];
         let computed_hash = Sha256::digest(public_inputs);
 
-        proof_hash == computed_hash.as_slice()
+        if proof_hash != computed_hash.as_slice() {
+            debug!(
+                "MockVerifier: Hash mismatch. Expected: {:?}, Got: {:?}",
+                computed_hash, proof_hash
+            );
+            return false;
+        }
+
+        true
     }
 }
 
