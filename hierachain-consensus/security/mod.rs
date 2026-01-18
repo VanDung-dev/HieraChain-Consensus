@@ -17,3 +17,6 @@ pub use mock_verifier::{MockMode, MockVerifier};
 pub use py_wrapper::{verify_signature as py_verify_signature, PyKeyPair};
 pub use security_utils::{verify_signature, verify_signature_bytes, CryptoError, KeyPair};
 pub use zk_verifier::{Groth16Verifier, Verifier, ZkVerifyError, ZkVerifyResult};
+
+pub mod integrity;
+pub use integrity::{ChecksumValidator, IntegrityError};
