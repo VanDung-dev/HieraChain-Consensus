@@ -2,10 +2,15 @@
 //!
 //! Classifies errors based on patterns and calculates priority using risk matrix.
 
-use crate::error_mitigation::types::{ErrorCategory, ImpactLevel, LikelihoodLevel, PriorityLevel};
+use crate::error_mitigation::types::{
+    ErrorCategory,
+    ImpactLevel,
+    LikelihoodLevel,
+    PriorityLevel
+};
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// Maximum number of unique errors to track to prevent DoS
 const MAX_ERROR_HISTORY: usize = 1000;
@@ -92,6 +97,8 @@ pub struct ErrorClassifier {
     risk_matrix: RiskPriorityMatrix,
     /// Error history for tracking recurring issues
     error_counts: HashMap<String, u32>,
+    /// Callback for critical errors (Lockdown)
+    lockdown_callback: Option<Arc<Box<dyn Fn(&str) + Send + Sync>>>,
 }
 
 impl ErrorClassifier {
@@ -168,7 +175,16 @@ impl ErrorClassifier {
         Self {
             risk_matrix: RiskPriorityMatrix::new(),
             error_counts: HashMap::new(),
+            lockdown_callback: None,
         }
+    }
+
+    /// Set callback for critical errors requiring lockdown
+    pub fn set_lockdown_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(&str) + Send + Sync + 'static,
+    {
+        self.lockdown_callback = Some(Arc::new(Box::new(callback)));
     }
 
     /// Sanitize error message to remove sensitive info
@@ -226,6 +242,15 @@ impl ErrorClassifier {
 
         // Calculate priority
         let priority = self.risk_matrix.get_priority(impact, adjusted_likelihood);
+
+        // Lockdown Trigger Check
+        if priority == PriorityLevel::Critical {
+            if let Some(callback) = &self.lockdown_callback {
+                // Determine reason
+                let reason = format!("CRITICAL ERROR: {} [{}]", clean_message, category.as_str());
+                callback(&reason);
+            }
+        }
 
         ErrorInfo {
             message: clean_message,
