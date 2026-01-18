@@ -15,7 +15,12 @@ use tokio::runtime::Runtime;
 
 // Import from sibling modules
 use crate::consensus::types::{
-    current_timestamp, EventPayload, EventStatus, OrderingNode, OrderingStatus, PendingEvent,
+    current_timestamp,
+    EventPayload,
+    EventStatus,
+    OrderingNode,
+    OrderingStatus,
+    PendingEvent,
 };
 use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
@@ -398,6 +403,62 @@ impl OrderingService {
                 "blocks_created": blocks_count
             }
         })
+    }
+
+    /// Flush all pending events and blocks (Emergency Cleanup)
+    /// This is used when the system needs to shed load immediately or enter lockdown.
+    pub fn flush_pool(&self) -> Value {
+        let mut pending = self.pending_events.lock().unwrap();
+        let pending_count = pending.len();
+
+        // Optional: Dump sample of event IDs for forensics if needed
+        let sample_ids: Vec<String> = pending.keys().take(10).cloned().collect();
+
+        pending.clear();
+
+        let mut commit_queue = self.commit_queue.lock().unwrap();
+        let queue_count = commit_queue.len();
+        commit_queue.clear();
+
+        // Explicit drop to hint memory release
+        drop(pending);
+        drop(commit_queue);
+
+        eprintln!(
+            "FLUSH POOL: Cleared {} pending events and {} queued blocks.",
+            pending_count, queue_count
+        );
+
+        json!({
+            "flushed_pending": pending_count,
+            "flushed_blocks": queue_count,
+            "sample_dropped_ids": sample_ids
+        })
+    }
+
+    /// Enter lockdown mode - stop processing and flush resources
+    pub fn lockdown(&self, reason: &str) {
+        {
+            let mut status = self.status.lock().unwrap();
+            *status = OrderingStatus::Lockdown;
+        }
+
+        eprintln!("!!! SYSTEM LOCKDOWN TRIGGERED: {} !!!", reason);
+
+        // Flush all resources
+        let report = self.flush_pool();
+
+        // Log the lockdown event
+        let lockdown_event = json!({
+            "event": "LOCKDOWN",
+            "reason": reason,
+            "timestamp": current_timestamp(),
+            "flush_report": report
+        });
+
+        if let Err(e) = self.journal.log_event(&lockdown_event) {
+            eprintln!("Failed to log lockdown event: {}", e);
+        }
     }
 
     pub fn stop(&self) {

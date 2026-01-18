@@ -26,6 +26,7 @@ pub enum OrderingStatus {
     Maintenance,
     Stopped,
     Error,
+    Lockdown,
 }
 
 impl ToString for OrderingStatus {
@@ -35,6 +36,7 @@ impl ToString for OrderingStatus {
             OrderingStatus::Maintenance => "maintenance".to_string(),
             OrderingStatus::Stopped => "stopped".to_string(),
             OrderingStatus::Error => "error".to_string(),
+            OrderingStatus::Lockdown => "lockdown".to_string(),
         }
     }
 }
