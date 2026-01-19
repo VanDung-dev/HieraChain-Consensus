@@ -20,3 +20,9 @@ pub use zk_verifier::{Groth16Verifier, Verifier, ZkVerifyError, ZkVerifyResult};
 
 pub mod integrity;
 pub use integrity::{ChecksumValidator, IntegrityError};
+
+pub mod zk_prover;
+pub use zk_prover::MockZKProver;
+
+pub mod sanitization;
+pub use sanitization::{ValidationError, ValidationSanitizer};
