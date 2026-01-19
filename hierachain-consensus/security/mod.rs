@@ -24,5 +24,11 @@ pub use integrity::{ChecksumValidator, IntegrityError};
 pub mod zk_prover;
 pub use zk_prover::MockZKProver;
 
+pub mod trust_manager;
+pub use trust_manager::{PeerTrustManager, TrustStatus};
+
+pub mod verify;
+pub use verify::{BlockVerifier, ConsensusVerifier, SignatureVerifier};
+
 pub mod sanitization;
 pub use sanitization::{ValidationError, ValidationSanitizer};
