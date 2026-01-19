@@ -79,11 +79,49 @@ class HierarchyStressTest:
 
         return True
 
+@pytest.fixture(scope="class")
+def hierarchy_tester():
+    tester = HierarchyStressTest()
+    tester.setup()
+    return tester
+
 @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust bindings required")
-def test_hierarchy_stress_rust():
-    test = HierarchyStressTest()
-    test.setup()
-    assert test.run_stress()
+class TestHierarchyIsolation:
+    def test_hierarchy_setup(self, hierarchy_tester):
+        """Verify MainChain and SubChains are initialized"""
+        assert hierarchy_tester.mainchain is not None
+        assert len(hierarchy_tester.subchains) == 3
+
+    def test_subchain_event_processing(self, hierarchy_tester):
+        """Verify adding events to subchains"""
+        sc = hierarchy_tester.subchains["sub-0"]
+        eid = sc.add_event({
+            "entity_id": "test_e1",
+            "event": "op_test",
+            "timestamp": time.time(),
+            "data": "payload"
+        })
+        assert eid is not None
+
+    def test_block_finalization_and_proof(self, hierarchy_tester):
+        """Verify block finalization returns a block with hash"""
+        sc = hierarchy_tester.subchains["sub-0"]
+        # Add enough events to insure block creation if needed, or force finalize
+        for i in range(5):
+             sc.add_event({
+                "entity_id": f"test_e{i+10}",
+                "event": "op_test",
+                "timestamp": time.time(),
+                "data": "payload"
+            })
+        
+        block = sc.finalize_block()
+        if block:
+            assert "block_hash" in block
+            
+    def test_full_hierarchy_flow(self, hierarchy_tester):
+        """Run the complete stress flow including proof verification"""
+        assert hierarchy_tester.run_stress()
 
 if __name__ == "__main__":
     t = HierarchyStressTest()

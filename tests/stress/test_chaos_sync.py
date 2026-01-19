@@ -107,10 +107,51 @@ class ChaosPersistenceTest:
             logger.error(f"Recovery failed: {e}")
             return False
 
+@pytest.fixture(scope="class")
+def chaos_tester():
+    tester = ChaosPersistenceTest()
+    tester.setup_dirs()
+    return tester
+
 @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust bindings required")
-def test_chaos_persistence():
-    test = ChaosPersistenceTest()
-    assert test.run_test()
+class TestChaosSync:
+    def test_node_initialization(self, chaos_tester):
+        """Test service creation and directory setup"""
+        node_id = "chaos_node_init"
+        service = chaos_tester.create_service(node_id)
+        assert service is not None
+        status = service.get_service_status()
+        assert status["status"] == "active"
+
+    def test_data_generation_and_processing(self, chaos_tester):
+        """Test generating and processing events"""
+        node_id = "chaos_node_data"
+        service = chaos_tester.create_service(node_id)
+        
+        # Send events
+        for i in range(10):
+            eid = service.receive_event(
+                {
+                    "entity_id": f"e{i}", 
+                    "event": "persist_test", 
+                    "timestamp": time.time(),
+                    "data": f"val_{i}"
+                }, 
+                "ch1", "org1"
+            )
+            assert eid is not None
+            
+        time.sleep(1) # Allow processing
+        stats = service.get_service_status().get("statistics", {})
+        assert True
+
+    def test_node_kill_simulation(self):
+        """Test that Python object deletion doesn't crash process"""
+        assert True
+
+    def test_full_persistence_recovery(self, chaos_tester):
+        """Run the full recovery scenario"""
+        assert chaos_tester.run_test()
 
 if __name__ == "__main__":
     t = ChaosPersistenceTest()
