@@ -7,3 +7,6 @@ pub use lockdown_protocol::{ClusterLockdownManager, LockdownMessage};
 
 pub mod manager;
 pub use manager::{ClusterManager, NodeStatus};
+
+pub mod state_sync;
+pub use state_sync::{StateSyncManager, SyncError};

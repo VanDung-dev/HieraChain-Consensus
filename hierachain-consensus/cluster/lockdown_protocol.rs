@@ -17,6 +17,17 @@ pub struct LockdownMessage {
     pub signature: Vec<u8>,
 }
 
+/// Report containing the final state of a node before quarantine/shutdown
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct QuarantineReport {
+    pub node_id: String,
+    pub timestamp: u64,
+    /// Hash of the current state or relevant data
+    pub state_fingerprint: String,
+    /// Index of the last successfully committed block
+    pub last_block_index: u64,
+}
+
 /// Broadcast error types
 #[derive(Debug)]
 pub enum BroadcastError {
@@ -63,6 +74,21 @@ impl ClusterLockdownManager {
 
         // Return true to indicate successful processing/acceptance
         Ok(true)
+    }
+
+    /// Broadcast a quarantine report (Last Breath)
+    ///
+    /// Used when a node detects corruption or is about to shut down.
+    pub fn broadcast_quarantine_report(report: &QuarantineReport) -> Result<(), BroadcastError> {
+        let _serialized = serde_json::to_string(report)
+            .map_err(|e| BroadcastError::SerializationError(e.to_string()))?;
+
+        println!(
+            "P2P BROADCAST [QUARANTINE]: Node {} reporting last breath. Fingerprint: {}, Last Block: {}",
+            report.node_id, report.state_fingerprint, report.last_block_index
+        );
+
+        Ok(())
     }
 }
 
