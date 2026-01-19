@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+import sys
+from hierachain.cli import hrc
+
+if __name__ == "__main__":
+    sys.exit(hrc())
