@@ -9,11 +9,13 @@ use pyo3::types::{PyDict, PyList, PyString};
 use serde_json::Value;
 
 // Import modules
+pub mod cluster;
 pub mod consensus;
 pub mod core;
 pub mod error_mitigation;
 pub mod ffi;
 pub mod hierarchical;
+pub mod sdk;
 pub mod security;
 pub mod utils;
 
