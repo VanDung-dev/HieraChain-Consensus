@@ -6,6 +6,7 @@
 pub mod block;
 pub mod blockchain;
 pub mod consensus;
+pub mod performance;
 pub mod py_wrapper;
 pub mod schemas;
 pub mod utils;
