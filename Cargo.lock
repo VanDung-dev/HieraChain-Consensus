@@ -1113,6 +1113,7 @@ dependencies = [
  "pyo3",
  "pythonize",
  "rand",
+ "rayon",
  "regex",
  "reqwest",
  "serde",

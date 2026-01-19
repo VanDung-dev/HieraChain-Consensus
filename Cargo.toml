@@ -39,6 +39,7 @@ sha2 = "0.10.9"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core", "zeroize"] }
 hex = "0.4.3"
 rand = "0.8.5"
+rayon = "1.10.0"
 
 # Zero Knowledge Proofs (ZKP)
 ark-bn254 = "0.5.0"
