@@ -7,6 +7,7 @@
 //! - Proper chain validation and integrity
 
 use crate::core::block::Block;
+use crate::security::verify::BlockVerifier;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -225,23 +226,24 @@ impl Blockchain {
     pub fn is_valid_new_block(&self, block: &Block) -> bool {
         let latest_block = self.get_latest_block();
 
-        // Check block index
-        if block.index != latest_block.index + 1 {
+        // Use BlockVerifier for strict validation
+        let verifier = BlockVerifier::new();
+
+        // 1. Verify integrity (Hash & Merkle Root)
+        if let Err(e) = verifier.verify_integrity(block) {
+            eprintln!("Block integrity verification failed: {}", e);
             return false;
         }
 
-        // Check previous hash
-        if block.previous_hash != latest_block.hash {
+        // 2. Verify Chain Link and Index
+        if let Err(e) = verifier.verify_chain_link(block, latest_block) {
+            eprintln!("Block chain link verification failed: {}", e);
             return false;
         }
 
-        // Check block structure
+        // 3. Structural validation (max events, etc)
         if !block.validate_structure() {
-            return false;
-        }
-
-        // Verify hash calculation
-        if block.hash != block.calculate_hash() {
+            eprintln!("Block structure validation failed");
             return false;
         }
 
