@@ -142,3 +142,62 @@ Some benchmarks may generate plots or data files. Ensure you have the necessary 
 ```bash
 pip install matplotlib pandas
 ```
+
+---
+
+## Docker Stress Testing
+
+Run stress tests in Docker containers with 4 HieraChain nodes (1 CPU, 1GiB RAM each):
+
+- Build and run stress tests with HTML report:
+
+    ```bash
+    docker compose -f docker/docker-compose.test.yml --profile stress-test run stress-tester python -m pytest tests/stress/ -v --html=/app/log/report/stress_test_report.html --self-contained-html
+    ```
+
+- Run real network stress tests (sends actual HTTP requests to nodes):
+
+    ```bash
+    docker compose -f docker/docker-compose.test.yml --profile stress-test run stress-tester python -m pytest tests/stress/test_real_network.py -v -s
+    ```
+
+- Run without HTML report:
+
+    ```bash
+    docker compose -f docker/docker-compose.test.yml --profile stress-test run stress-tester
+    ```
+
+- Stop and clean up containers:
+
+    ```bash
+    docker compose -f docker/docker-compose.test.yml down --remove-orphans
+    ```
+
+Reports are saved to `log/report/` directory.
+
+---
+
+## Kubernetes Stress Testing
+
+Run stress tests in Kubernetes
+> **Recommendation:** Use Docker Compose for local dev. Use Kubernetes when you need a production-like environment.
+
+**Quick Start:**
+
+```bash
+# Build image & deploy
+docker build -t hierachain:latest -f docker/Dockerfile .
+kubectl apply -k docker/k8s/
+
+# Wait for pods to be ready
+kubectl wait --for=condition=ready pod -l app=hierachain -n hierachain --timeout=120s
+
+# Test API
+curl http://localhost:32661/api/v1/health
+
+# Run stress test
+docker compose -f docker/docker-compose.k8s-stress.yml --profile stress-test run stress-tester python -m pytest tests/stress/ -v --html=/app/log/report/stress_test_report.html --self-contained-html
+
+# Cleanup
+kubectl delete -k docker/k8s/
+```
