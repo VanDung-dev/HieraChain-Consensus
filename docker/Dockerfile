@@ -42,6 +42,7 @@ RUN maturin develop --release
 
 # 6. Copy HieraChain Python Source
 COPY hierachain/ ./hierachain/
+COPY tests/ ./tests/
 
 # 7. Setup Entrypoint
 COPY docker/hrc /usr/local/bin/hrc
