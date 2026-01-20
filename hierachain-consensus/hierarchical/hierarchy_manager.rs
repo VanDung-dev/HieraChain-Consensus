@@ -306,11 +306,32 @@ impl HierarchyManager {
     }
 
     /// Remove a sub-chain.
+    ///
+    /// This method will:
+    /// 1. Log a `SystemEvent::ChainRemoved` to the Main Chain.
+    /// 2. Remove the sub-chain from memory.
     pub fn remove_sub_chain(&mut self, name: &str) -> Result<(), HierarchyError> {
         if !self.sub_chains.contains_key(name) {
             return Err(HierarchyError::SubChainNotFound(name.to_string()));
         }
 
+        // Detect timestamp
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+
+        // 1. Notify Main Chain
+        let removal_event = serde_json::json!({
+            "event": "$SYSTEM_CHAIN_REMOVED",
+            "chain_name": name,
+            "timestamp": now,
+            "entity_id": "system_admin" // Placeholder for admin ID
+        });
+
+        let _ = self.main_chain.blockchain.add_event(removal_event);
+
+        // 2. Remove from memory
         self.sub_chains.remove(name);
         self.sub_chain_info.remove(name);
         self.system_stats.active_chains = self.sub_chains.len() as u64 + 1;
