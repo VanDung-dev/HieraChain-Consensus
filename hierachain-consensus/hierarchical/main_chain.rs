@@ -529,6 +529,9 @@ impl MainChain {
             Err(_) => return None,
         };
 
+        // Set creator_id to "main_chain" (registered authority) for consensus finalization
+        new_block.creator_id = Some("main_chain".to_string());
+
         // Finalize with PoA consensus
         if !self.consensus.finalize_block(&mut new_block) {
             return None;

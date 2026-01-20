@@ -763,8 +763,11 @@ impl SubChain {
             self.blockchain.add_event(event.clone()).ok();
         }
 
-        // Create and finalize block
-        let mut block = self.blockchain.create_block(Some(pending.clone())).ok()?;
+        // Create and finalize block (from pending events)
+        let mut block = self.blockchain.create_block(None).ok()?;
+
+        // Set creator_id for consensus
+        block.creator_id = Some(self.blockchain.name.clone());
 
         // Finalize with consensus
         if !self.consensus.finalize_block(&mut block) {

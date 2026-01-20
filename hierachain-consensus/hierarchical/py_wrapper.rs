@@ -13,6 +13,7 @@ use serde_json::{Map, Value};
 use std::collections::HashMap as StdHashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::core::block::Block;
 use crate::hierarchical::consensus::bft_consensus::BFTConsensus;
 use crate::hierarchical::main_chain::ConsensusType;
 use crate::hierarchical::{HierarchyManager, MainChain, SubChain};
@@ -470,6 +471,54 @@ impl PyMainChain {
         Ok(())
     }
 
+    // --- Added for Hybrid Python Compatibility ---
+
+    /// Get current state root (latest block hash)
+    pub fn get_state_root(&self) -> String {
+        self.inner.blockchain.get_latest_block().hash.clone()
+    }
+
+    /// Get blocks in range
+    pub fn get_blocks(
+        &self,
+        py: Python,
+        from_index: usize,
+        to_index: usize,
+    ) -> PyResult<Py<PyList>> {
+        let blocks = &self.inner.blockchain.chain;
+        let end = std::cmp::min(to_index, blocks.len());
+        let start = std::cmp::min(from_index, end);
+
+        let py_list = PyList::empty(py);
+        for block in &blocks[start..end] {
+            // Convert Block to Python object (Py<Block> would be better but simple dict is safer for managers)
+            // Using to_dict(py)
+            py_list.append(block.to_dict(py)?)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Alias for add_proof to satisfy CrossLevelSyncManager
+    pub fn receive_proof(&mut self, anchor_data: &Bound<PyAny>) -> PyResult<bool> {
+        let data: Value = depythonize(anchor_data)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        // Extract fields expected by add_proof
+        let sub_chain_name = data
+            .get("sub_chain_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Missing sub_chain_id"))?
+            .to_string();
+
+        let proof_hash = data
+            .get("proof_hash")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Missing proof_hash"))?
+            .to_string();
+
+        Ok(self.inner.add_proof(&sub_chain_name, &proof_hash, data))
+    }
+
     fn __len__(&self) -> usize {
         self.inner.blockchain.chain.len()
     }
@@ -765,6 +814,78 @@ impl PySubChain {
 
         inner.set_verifier(verifier);
         Ok(())
+    }
+
+    // --- Added for Hybrid Python Compatibility ---
+
+    /// Get current state root (latest block hash)
+    pub fn get_state_root(&self) -> PyResult<String> {
+        self.inner
+            .lock()
+            .map(|s| s.blockchain.get_latest_block().hash.clone())
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Get blocks in range
+    pub fn get_blocks(
+        &self,
+        py: Python,
+        from_index: usize,
+        to_index: usize,
+    ) -> PyResult<Py<PyList>> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let blocks = &inner.blockchain.chain;
+        let end = std::cmp::min(to_index, blocks.len());
+        let start = std::cmp::min(from_index, end);
+
+        let py_list = PyList::empty(py);
+        for block in &blocks[start..end] {
+            py_list.append(block.to_dict(py)?)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Add a block (used by sync)
+    pub fn add_block(&self, block_data: &Bound<PyAny>) -> PyResult<bool> {
+        let block_val: Value = depythonize(block_data)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        // Deserialize block
+        let block: Block = serde_json::from_value(block_val).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Invalid block data: {}", e))
+        })?;
+
+        Ok(inner.blockchain.add_block(block))
+    }
+
+    /// Add a synced block from another chain (bypasses chain link validation).
+    ///
+    /// This method is used for cross-chain sync where blocks maintain their
+    /// original chain links from the source chain.
+    pub fn add_synced_block(&self, block_data: &Bound<PyAny>) -> PyResult<bool> {
+        let block_val: Value = depythonize(block_data)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        // Deserialize block
+        let block: Block = serde_json::from_value(block_val).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Invalid block data: {}", e))
+        })?;
+
+        Ok(inner.blockchain.add_synced_block(block))
     }
 
     fn __str__(&self) -> String {
