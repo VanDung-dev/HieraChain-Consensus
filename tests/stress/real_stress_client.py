@@ -54,6 +54,7 @@ class StressTestResult:
     avg_response_time: float = 0.0
     events_submitted: int = 0
     events_confirmed: int = 0
+    duration: float = 0.0
     nodes: dict[str, NodeStatus] = field(default_factory=dict)
 
 
@@ -283,6 +284,8 @@ class RealStressClient:
 
         if all_times:
             self.results.avg_response_time = sum(all_times) / len(all_times)
+            
+        self.results.duration = time.time() - start_time
 
         return self.results
 
