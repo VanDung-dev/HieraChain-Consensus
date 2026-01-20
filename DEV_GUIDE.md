@@ -186,46 +186,21 @@ Run stress tests in Kubernetes
 
 ```bash
 # Build image & deploy
-docker build -t hierachain:latest -f docker/Dockerfile .
+docker build --no-cache -t hierachain:latest -f docker/Dockerfile .
+kind create cluster --name hiera-cluster
+kind load docker-image hierachain:latest --name hiera-cluster
 kubectl apply -k docker/k8s/
 
 # Wait for pods to be ready
 kubectl wait --for=condition=ready pod -l app=hierachain -n hierachain --timeout=120s
 
 # Expose the API to local host
-kubectl port-forward service/hierachain-api 32661:2661 -n hierachain --address 0.0.0.0 &
-
-# Test API
-curl http://localhost:32661/api/v1/health
+kubectl port-forward service/hierachain-api 32661:2661 -n hierachain --address 0.0.0.0
 
 # Run stress test
-docker compose -f docker/docker-compose.k8s-stress.yml --profile stress-test run stress-tester python -m pytest tests/stress/ -v --html=/app/log/report/stress_test_report.html --self-contained-html
+docker compose -f docker/docker-compose.k8s-stress.yml --profile stress-test run --build stress-tester python -m pytest tests/stress/ -v --html=/app/log/report/stress_test_report.html --self-contained-html
 
 # Cleanup
 kubectl delete -k docker/k8s/
+kind delete cluster --name hiera-cluster
 ```
-
-### High Performance Stress Testing (Recommended)
-
-To avoid network bottlenecks from `kubectl port-forward`, run the stress tests directly inside the cluster as a Kubernetes Job:
-
-1. **Ensure Docker image includes tests** (rebuild if needed):
-
-    ```bash
-    # Dockerfile must include: COPY tests/ ./tests/
-    docker build -t hierachain:latest -f docker/Dockerfile .
-    kind load docker-image hierachain:latest --name hiera-cluster
-    ```
-
-2. **Deploy the Stress Tester Job**:
-
-    ```bash
-    kubectl delete job stress-tester -n hierachain --ignore-not-found
-    kubectl apply -f docker/k8s/stress-tester-job.yaml
-    ```
-
-3. **View Results**:
-
-    ```bash
-    kubectl logs -f job/stress-tester -n hierachain
-    ```
