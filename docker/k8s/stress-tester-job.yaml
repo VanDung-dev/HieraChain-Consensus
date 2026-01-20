@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stress-tester
+  namespace: hierachain
+spec:
+  template:
+    spec:
+      containers:
+        - name: stress-tester
+          image: hierachain:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              "python",
+              "-m",
+              "pytest",
+              "tests/stress/",
+              "-v",
+              "-s",
+            ]
+          env:
+            - name: TARGET_NODES
+              value: "hierachain-api:2661"
+            - name: REAL_REQUESTS
+              value: "true"
+            - name: TEST_DURATION
+              value: "30"
+      restartPolicy: Never
+  backoffLimit: 1
