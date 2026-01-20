@@ -194,6 +194,42 @@ impl Blockchain {
         }
     }
 
+    /// Add a synced block from another chain (bypasses chain link validation).
+    ///
+    /// This method is used for cross-chain sync where blocks maintain their
+    /// original chain links from the source chain. It only verifies:
+    /// - Block integrity (hash and merkle root)
+    /// - Block structure
+    ///
+    /// It does NOT verify:
+    /// - Chain link (previous_hash matching this chain's latest block)
+    /// - Index continuity with this chain
+    ///
+    /// # Arguments
+    /// * `block` - Block to add from another chain
+    ///
+    /// # Returns
+    /// True if block was added successfully, false otherwise
+    pub fn add_synced_block(&mut self, block: Block) -> bool {
+        let verifier = BlockVerifier::new();
+
+        // 1. Verify block's internal integrity (hash and merkle root)
+        if let Err(e) = verifier.verify_integrity(&block) {
+            eprintln!("Synced block integrity verification failed: {}", e);
+            return false;
+        }
+
+        // 2. Verify block structure
+        if !block.validate_structure() {
+            eprintln!("Synced block structure validation failed");
+            return false;
+        }
+
+        // Add block without chain link validation
+        self.chain.push(block);
+        true
+    }
+
     /// Finalize pending events into a new block and add it to the chain.
     ///
     /// # Returns
