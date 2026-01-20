@@ -15,12 +15,7 @@ use tokio::runtime::Runtime;
 
 // Import from sibling modules
 use crate::consensus::types::{
-    current_timestamp,
-    EventPayload,
-    EventStatus,
-    OrderingNode,
-    OrderingStatus,
-    PendingEvent,
+    current_timestamp, EventPayload, EventStatus, OrderingNode, OrderingStatus, PendingEvent,
 };
 use crate::core::utils::MerkleTree;
 use crate::error_mitigation::journal::TransactionJournal;
@@ -83,7 +78,7 @@ impl EventCertifier {
                 // Check timestamp freshness (1 hour tolerance)
                 if let Some(ts_val) = obj.get("timestamp").and_then(|v| v.as_f64()) {
                     let now = current_timestamp();
-                    if (ts_val - now).abs() > 3600.0 {
+                    if (ts_val - now).abs() > 300.0 {
                         valid = false;
                         errors.push("Timestamp out of tolerance".to_string());
                     }
@@ -185,6 +180,7 @@ pub struct BlockBuilder {
     batch_timeout: f64,
     current_batch: Arc<Mutex<Vec<PendingEvent>>>,
     batch_start_time: Arc<Mutex<f64>>,
+    pending_zk_proof: Arc<Mutex<Option<(Vec<u8>, Vec<u8>)>>>, // (proof, public_inputs)
 }
 
 impl BlockBuilder {
@@ -204,7 +200,12 @@ impl BlockBuilder {
             batch_timeout,
             current_batch: Arc::new(Mutex::new(Vec::new())),
             batch_start_time: Arc::new(Mutex::new(current_timestamp())),
+            pending_zk_proof: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn set_zk_proof(&self, proof: Vec<u8>, public_inputs: Vec<u8>) {
+        *self.pending_zk_proof.lock().unwrap() = Some((proof, public_inputs));
     }
 
     pub fn add_event(&self, event: PendingEvent) -> Option<Value> {
@@ -244,10 +245,19 @@ impl BlockBuilder {
         // 1. Extract events
         let events: Vec<Value> = batch.iter().map(|e| e.event_data.clone()).collect();
 
-        // 2. Compute Merkle Root (Using our new Crypto impl)
-        // MerkleTree::new expects &[Value] and returns hex String root
+        // 2. Compute Merkle Root
         let tree = MerkleTree::new(&events);
         let merkle_root = tree.get_root();
+
+        // 3. Get Pending ZK Proof
+        let (zk_proof, zk_public_inputs) = {
+            let mut guard = self.pending_zk_proof.lock().unwrap();
+            if let Some((p, i)) = guard.take() {
+                (Some(hex::encode(p)), Some(hex::encode(i)))
+            } else {
+                (None, None)
+            }
+        };
 
         let now = current_timestamp();
 
@@ -256,7 +266,9 @@ impl BlockBuilder {
             "event_count": batch.len(),
             "created_at": now,
             "merkle_root": merkle_root,
-            // "hash": ... // Block hash usually computed on the whole structure
+            "zk_proof": zk_proof,
+            "zk_public_inputs": zk_public_inputs
+            // "hash": ...
         });
 
         // Reset
@@ -538,5 +550,11 @@ impl OrderingService {
     /// Set ZK Verifier
     pub fn set_verifier(&self, verifier: Arc<dyn Verifier>) {
         self.certifier.set_verifier(verifier);
+    }
+
+    /// Set ZK proof for the next block to be created.
+    /// This allows attaching a proof (e.g. state transition proof) to the block.
+    pub fn set_zk_proof_for_next_block(&self, proof: Vec<u8>, public_inputs: Vec<u8>) {
+        self.block_builder.set_zk_proof(proof, public_inputs);
     }
 }
