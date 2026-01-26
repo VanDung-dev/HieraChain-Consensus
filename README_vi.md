@@ -3,7 +3,7 @@
 ![Python Versions](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE-APACHE)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
-![Version](https://img.shields.io/badge/version-0.0.1.dev2-orange)
+![Version](https://img.shields.io/badge/version-0.0.1.dev4-orange)
 
 [English](README.md) | **Tiếng Việt**
 
@@ -121,7 +121,6 @@ HieraChain Consensus được xây dựng với kiến trúc mô-đun phân tác
 | Dự án | Ngôn ngữ | Mô tả |
 |-------|----------|-------|
 | [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Framework blockchain phân cấp chính (bao gồm consensus thuần Python) |
-| [HieraChain-Engine](https://github.com/VanDung-dev/HieraChain-Engine) | Go | Blockchain engine hiệu năng cao với mạng lưới P2P |
 | **HieraChain-Consensus** (repo này) | Rust | **Core Consensus chính thức** - triển khai tối ưu với binding Python/C |
 
 > 💡 **Tại sao Rust?** Mặc dù HieraChain Python cũng bao gồm các thuật toán consensus, phiên bản Rust này mang lại hiệu năng tốt hơn cho các thao tác consensus quan trọng, đảm bảo an toàn bộ nhớ và tích hợp liền mạch qua PyO3 bindings.

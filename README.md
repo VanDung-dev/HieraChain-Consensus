@@ -3,7 +3,7 @@
 ![Python Versions](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE-APACHE)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
-![Version](https://img.shields.io/badge/version-0.0.1.dev2-orange)
+![Version](https://img.shields.io/badge/version-0.0.1.dev4-orange)
 
 **English** | [Tiếng Việt](README_vi.md)
 
@@ -121,7 +121,6 @@ HieraChain Consensus is built with a modular architecture that separates concern
 | Project | Language | Description |
 |---------|----------|-------------|
 | [HieraChain](https://github.com/VanDung-dev/HieraChain) | Python | Main hierarchical blockchain framework (includes pure Python consensus) |
-| [HieraChain-Engine](https://github.com/VanDung-dev/HieraChain-Engine) | Go | High-performance blockchain engine with P2P networking |
 | **HieraChain-Consensus** (this repo) | Rust | **Official Core Consensus** - optimized implementation with Python/C bindings |
 
 > 💡 **Why Rust?** While HieraChain's Python implementation includes consensus algorithms, this Rust implementation offers better performance for consensus-critical operations, memory safety guarantees, and seamless integration via PyO3 bindings.
