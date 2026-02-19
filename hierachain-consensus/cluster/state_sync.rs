@@ -63,12 +63,12 @@ impl StateSyncManager {
             // 2. Verify Continuity with previous block
             self.verifier
                 .verify_chain_link(block, prev_block)
-                .map_err(|e| SyncError::ContinuityError(block.index))?;
+                .map_err(|_e| SyncError::ContinuityError(block.index))?;
 
             // 3. Verify Signature
             self.verifier
                 .verify_signature(block)
-                .map_err(|e| SyncError::VerificationFailed(e.to_string()))?;
+                .map_err(|_e| SyncError::VerificationFailed(_e.to_string()))?;
 
             prev_block = block;
         }
